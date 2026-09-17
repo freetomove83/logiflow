@@ -1,0 +1,42 @@
+{
+  "build_command": "pnpm run build",
+  "capabilities": [
+    "db",
+    "server",
+    "user"
+  ],
+  "dev_command": "pnpm run dev",
+  "env_vars": {
+    "DATABASE_URL": "mysql://Vv6rtrPNLF1bFbY.15e1bb441965:Di8vWV1k3xHy33ALeS4S@gateway02.us-east-1.prod.aws.tidbcloud.com:4000/KJcCTFmp4WTdMt6SfgXWK3?ssl={\"rejectUnauthorized\":true}",
+    "DRIZZLE_DATABASE_URL": "mysql://Vv6rtrPNLF1bFbY.15e1bb441965:Di8vWV1k3xHy33ALeS4S@gateway02.us-east-1.prod.aws.tidbcloud.com:4000/KJcCTFmp4WTdMt6SfgXWK3?ssl={\"rejectUnauthorized\":true}",
+    "MANUS_WEBDEV_PROJECT_ID": "KJcCTFmp4WTdMt6SfgXWK3"
+  },
+  "experiments": null,
+  "git_remote": {
+    "repo_url": "https://7f0548f6b28a1758d9bf7be630d36cb4.artifacts.cloudflare.net/git/prod/KJcCTFmp4WTdMt6SfgXWK3.git",
+    "expiration": "2026-08-28T00:08:59.162Z",
+    "token": "art_v2_x_223b393e607f20a185eef84c0b574e0732252f25?expires=1787875739",
+    "backend": "GIT_BACKEND_ARTIFACTS"
+  },
+  "name": "b2b-logistics-cs",
+  "path": "/home/ubuntu/b2b-logistics-cs",
+  "port": 3000,
+  "secrets": {
+    "BUILT_IN_FORGE_API_KEY": "gd2jK2yHwVP8VkCvAbjjmy",
+    "BUILT_IN_FORGE_API_URL": "https://forge.manus.ai",
+    "JWT_SECRET": "YDrHoAP7fDXxVc4iG2JuBG",
+    "OAUTH_SERVER_URL": "https://api.manus.im",
+    "OWNER_NAME": "강준석",
+    "OWNER_OPEN_ID": "nZAqcfGFLWVAaMQMtdbTcp",
+    "VITE_ANALYTICS_ENDPOINT": "https://manus-analytics.com",
+    "VITE_ANALYTICS_WEBSITE_ID": "37b2623d-d3d9-46be-9322-10b26675e99c",
+    "VITE_APP_ID": "KJcCTFmp4WTdMt6SfgXWK3",
+    "VITE_APP_LOGO": "https://files.manuscdn.com/user_upload_by_module/web_dev_logo/310519663885568997/UGPskqOfqZxpfogb.png",
+    "VITE_APP_TITLE": "LogiFlow CS Console",
+    "VITE_FRONTEND_FORGE_API_KEY": "eRvydM5JkJJbVLdWYvDvxW",
+    "VITE_FRONTEND_FORGE_API_URL": "https://forge.manus.ai",
+    "VITE_OAUTH_PORTAL_URL": "https://manus.im"
+  },
+  "template_id": "web-static",
+  "test_command": "pnpm test"
+}

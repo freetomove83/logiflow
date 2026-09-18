@@ -1587,9 +1587,11 @@ function ShipperIssueSummary() {
 }
 
 function ShipperPortal({ organizationName }: { organizationName: string }) {
-  const [tab, setTab] = useState<"tickets" | "completed" | "risk" | "documents">("tickets");
-  const [showForm, setShowForm] = useState(false);
+  const [tab, setTab] = useState<"tickets" | "risk" | "completed" | "documents">("tickets");
   const [search, setSearch] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const { logout } = useAuth();
+
   const [tracking, setTracking] = useState("");
   const [issueType, setIssueType] = useState<Ticket["type"]>("파손/분실");
   const [details, setDetails] = useState("");
@@ -1762,7 +1764,7 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => toast("로그아웃 동작을 준비했습니다.")}
+            onClick={logout}
           >
             <LogOut className="mr-1.5 h-3.5 w-3.5" />
             로그아웃

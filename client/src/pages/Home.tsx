@@ -764,6 +764,7 @@ function AgencyHeader({
   compact: boolean;
   setCompact: (value: boolean) => void;
 }) {
+  const { logout } = useAuth();
   return (
     <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-[#e7e8e4] bg-[#fffefb] px-4 sm:px-7">
       <button
@@ -812,6 +813,15 @@ function AgencyHeader({
           12
         </span>
       </button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="hidden sm:inline-flex"
+        onClick={logout}
+      >
+        <LogOut className="mr-1.5 h-4 w-4" />로그아웃
+      </Button>
       <div className="hidden items-center gap-2.5 border-l border-[#e2e6e1] pl-4 sm:flex">
         <Avatar className="h-8 w-8 border border-[#dce7e4]">
           <AvatarFallback className="bg-[#e7f5f3] text-[11px] font-bold text-[#17796f]">
@@ -828,681 +838,71 @@ function AgencyHeader({
 }
 
 function TicketsView() {
-  const [selectedId, setSelectedId] = useState(tickets[0].id);
-  const [filter, setFilter] = useState("전체 이슈");
-  const [query, setQuery] = useState("");
-  const [reply, setReply] = useState(
-    "용산지점 사고 접수 완료되었습니다. 내일 교환출고 부탁드립니다."
-  );
-  const [internal, setInternal] = useState(false);
-  const [thread, setThread] = useState<
-    { message: string; internal: boolean; time: string }[]
-  >([]);
-  const [assignee, setAssignee] = useState(agencyAssignees[0]);
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [assigneeFilter, setAssigneeFilter] = useState("전체 담당자");
-  const [compensationFilter, setCompensationFilter] = useState("전체 보상 상태");
-  const selected =
-    tickets.find(ticket => ticket.id === selectedId) ?? tickets[0];
-  const filtered = useMemo(
-    () =>
-      tickets.filter(
-        ticket =>
-          (filter === "전체 이슈" || ticket.type === filter) &&
-          (assigneeFilter === "전체 담당자" || ticket.assignee === assigneeFilter) &&
-          (compensationFilter === "전체 보상 상태" || ticket.compensation === compensationFilter) &&
-          `${ticket.company}${ticket.tracking}${ticket.recipient}`.includes(
-            query
-          )
-      ),
-    [filter, query, assigneeFilter, compensationFilter]
-  );
-  const sendReply = () => {
-    if (!reply.trim()) return toast.error("전송할 답변을 입력해 주세요.");
-    setThread(current => [
-      ...current,
-      { message: reply, internal, time: "방금" },
-    ]);
-    toast.success(
-      internal ? "내부 메모로 저장했습니다." : "화주에게 답변을 전송했습니다."
-    );
-    setReply("");
-  };
   return (
-    <div className="page-enter flex min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-6">
+    <DataResetNotice
+      title="CS 처리 현황"
+      description="초기화된 DB를 기준으로 다시 검증할 수 있도록 샘플 티켓 대시보드를 숨겼습니다."
+      helper="실제 티켓 테이블과 상세 패널이 붙기 전까지는 이 메뉴에서 숫자와 샘플 화주명이 보이지 않는 것이 맞습니다. 초대, 가입, 계정 설정, 로그인 흐름 확인 후 실티켓 연동을 붙이겠습니다."
+      icon={Inbox}
+    />
+  );
+}
+
+function DataResetNotice({
+  title,
+  description,
+  helper,
+  icon: Icon,
+}: {
+  title: string;
+  description: string;
+  helper: string;
+  icon: typeof UsersRound;
+}) {
+  return (
+    <div className="page-enter flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
       <div className="content-title-row">
         <div>
-          <p className="eyebrow">AGENCY SERVICE DESK · 09:42 KST</p>
-          <h1>CS 처리 현황</h1>
-          <p className="subtitle">
-            420개 화주의 고객 이슈를 하나의 업무 흐름으로 관리합니다.
+          <p className="eyebrow">LIVE DATA CHECKPOINT</p>
+          <h1>{title}</h1>
+          <p className="subtitle">{description}</p>
+        </div>
+      </div>
+      <section className="data-card mt-5 flex min-h-[420px] items-center justify-center">
+        <div className="empty-state max-w-[620px]">
+          <div className="empty-icon">
+            <Icon />
+          </div>
+          <h2>더미 화면을 숨겨 둔 상태입니다.</h2>
+          <p>{helper}</p>
+          <p className="text-sm text-[#7c8897]">
+            실데이터 연결 전까지는 샘플 숫자, 샘플 화주명, 샘플 티켓을 표시하지 않습니다.
           </p>
         </div>
-        <Button
-          onClick={() => toast("새 CS 티켓 등록 창을 준비했습니다.")}
-          className="hidden bg-[#0e9f95] text-white hover:bg-[#0b887f] sm:flex"
-        >
-          <Plus className="mr-1.5 h-4 w-4" />
-          티켓 수동 등록
-        </Button>
-      </div>
-      <div className="metric-grid mt-5">
-        <MetricCard
-          label="신규 접수"
-          value="48"
-          detail="지난 24시간 기준"
-          icon={Inbox}
-          tone="navy"
-          trend="12.6%"
-        />
-        <MetricCard
-          label="택배사 확인 중"
-          value="112"
-          detail="평균 확인 38분"
-          icon={Truck}
-          tone="teal"
-        />
-        <MetricCard
-          label="답변 완료"
-          value="380"
-          detail="당일 목표 92% 달성"
-          icon={MessageSquareText}
-          tone="navy"
-        />
-        <MetricCard
-          label="보상 · 사고 처리"
-          value="15"
-          detail="처리 기한 2건 임박"
-          icon={AlertTriangle}
-          tone="amber"
-        />
-      </div>
-      <section className="workspace mt-5 min-h-0 flex-1">
-        <div className="ticket-panel flex min-h-0 flex-col">
-          <div className="workspace-head">
-            <div>
-              <p className="panel-kicker">INBOX</p>
-              <h2>
-                티켓 리스트 <span>{filtered.length}</span>
-              </h2>
-            </div>
-            <button
-              className="icon-btn"
-              onClick={() => setAdvancedOpen(current => !current)}
-              aria-expanded={advancedOpen}
-              aria-label="고급 검색 열기"
-            >
-              <Filter />
-            </button>
-          </div>
-          <div className="flex items-center gap-2 border-b border-[#eaede9] px-4 py-3">
-            <select
-              className="filter-select"
-              value={filter}
-              onChange={event => setFilter(event.target.value)}
-            >
-              <option>전체 이슈</option>
-              <option>파손/분실</option>
-              <option>배송지연</option>
-              <option>오배송</option>
-              <option>주소변경</option>
-            </select>
-            <div className="mini-search">
-              <Search className="h-3.5 w-3.5" />
-              <input
-                value={query}
-                onChange={event => setQuery(event.target.value)}
-                placeholder="빠른 검색"
-              />
-            </div>
-          </div>
-          <div className="quick-filter-row">
-            <button className={assigneeFilter === "김대리 · 운영 2팀" ? "quick-filter-active" : ""} onClick={() => setAssigneeFilter(value => value === "김대리 · 운영 2팀" ? "전체 담당자" : "김대리 · 운영 2팀")}>내 담당 티켓 <span>2</span></button>
-            <button className={compensationFilter === "보상 대기" ? "quick-filter-active quick-filter-amber" : "quick-filter-amber"} onClick={() => setCompensationFilter(value => value === "보상 대기" ? "전체 보상 상태" : "보상 대기")}>보상 처리 대기 <span>1</span></button>
-          </div>
-          {advancedOpen && <div className="advanced-filter-panel"><div className="advanced-filter-title"><Filter />고급 검색 <button onClick={() => { setAssigneeFilter("전체 담당자"); setCompensationFilter("전체 보상 상태"); }}>초기화</button></div><label>담당자<select value={assigneeFilter} onChange={event => setAssigneeFilter(event.target.value)}><option>전체 담당자</option>{agencyAssignees.map(person => <option key={person}>{person}</option>)}</select></label><label>보상 처리<select value={compensationFilter} onChange={event => setCompensationFilter(event.target.value)}><option>전체 보상 상태</option><option>보상 대기</option><option>보상 검토</option><option>보상 승인</option><option>해당 없음</option></select></label></div>}
-          <div className="ticket-list flex-1 overflow-y-auto">
-            {filtered.map(ticket => (
-              <button
-                key={ticket.id}
-                onClick={() => {
-                  setSelectedId(ticket.id);
-                  setReply(ticket.answer);
-                }}
-                className={`ticket-row ${selectedId === ticket.id ? "ticket-row-active" : ""}`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <TicketTag type={ticket.type} />
-                    <strong className="truncate text-[13px] text-[#26384d]">
-                      {ticket.company}
-                    </strong>
-                  </div>
-                  <span className="whitespace-nowrap text-[10px] text-[#92a0ae]">
-                    {ticket.time}
-                  </span>
-                </div>
-                <div className="mt-2 flex items-center gap-1.5 text-[11px] text-[#758398]">
-                  <StatusDot
-                    tone={
-                      ticket.status === "신규"
-                        ? "red"
-                        : ticket.status === "처리중"
-                          ? "amber"
-                          : "teal"
-                    }
-                  />
-                  <span>송장 {ticket.tracking}</span>
-                  <span className="text-[#cad0d7]">/</span>
-                  <span>{ticket.recipient}</span>
-                </div>
-                <div className="ticket-author">
-                  <span className="author-mini-avatar">
-                    {ticket.openedBy.charAt(0)}
-                  </span>
-                  {ticket.openedBy}
-                  <span className="participant-count">
-                    +{ticket.participantCount - 1}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center justify-between border-t border-[#eaede9] px-4 py-3 text-[11px] text-[#7f8b99]">
-            <span>
-              선택 <b className="text-[#25364b]">1건</b>
-            </span>
-            <button
-              className="font-bold text-[#0e9f95]"
-              onClick={() => toast("선택 티켓 일괄 처리 기능을 준비했습니다.")}
-            >
-              일괄 처리
-            </button>
-          </div>
-        </div>
-        <div className="detail-panel flex min-h-0 flex-col">
-          <div className="workspace-head">
-            <div>
-              <p className="panel-kicker">TICKET DETAIL · {selected.id}</p>
-              <h2 className="flex items-center gap-2">
-                <TicketTag type={selected.type} />
-                {selected.company}
-              </h2>
-            </div>
-            <div className="detail-head-actions">
-              <label className="assignee-select">
-                <UserCheck className="h-3.5 w-3.5" />
-                <select
-                  value={assignee}
-                  onChange={event => {
-                    setAssignee(event.target.value);
-                    toast.success(
-                      `${event.target.value}에게 티켓을 배정했습니다.`
-                    );
-                  }}
-                >
-                  {agencyAssignees.map(person => (
-                    <option key={person}>{person}</option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className="icon-btn"
-                onClick={() => toast("티켓 메뉴를 열었습니다.")}
-              >
-                <MoreHorizontal />
-              </button>
-            </div>
-          </div>
-          <div className="ticket-meta-grid">
-            <div>
-              <span>화주 코드</span>
-              <strong>SH-1029</strong>
-            </div>
-            <div>
-              <span>작성자</span>
-              <strong>{selected.openedBy}</strong>
-            </div>
-            <div>
-              <span>송장번호</span>
-              <strong className="text-[#0e8d84]">
-                CJ {selected.tracking} ↗
-              </strong>
-            </div>
-            <div>
-              <span>대리점 담당</span>
-              <strong>{assignee}</strong>
-            </div>
-          </div>
-          <EvidenceReviewPanel onReview={() => setReviewOpen(true)} />
-          <div className="thread flex-1 overflow-y-auto">
-            <p className="thread-label">공유 스레드 히스토리</p>
-            <div className="thread-message shipper-msg">
-              <div className="thread-avatar">화</div>
-              <div>
-                <div className="thread-meta">
-                  <strong>화주 · 김담당</strong>
-                  <span>08:40</span>
-                </div>
-                <p>{selected.note}</p>
-                <span className="attachment">
-                  <FileText className="h-3.5 w-3.5" /> 파손 사진 2장
-                </span>
-              </div>
-            </div>
-            <div className="thread-message internal-msg">
-              <div className="thread-avatar">
-                <ShieldCheck className="h-3.5 w-3.5" />
-              </div>
-              <div>
-                <div className="thread-meta">
-                  <strong>대리점 내부 메모</strong>
-                  <span>09:03</span>
-                </div>
-                <p>
-                  용산지점 김기사님 확인 중 · 연락 완료. 사고 접수 코드 요청함.
-                </p>
-              </div>
-            </div>
-            <div className="thread-message agency-msg">
-              <div className="thread-avatar">김</div>
-              <div>
-                <div className="thread-meta">
-                  <strong>김대리 · 서울중앙물류</strong>
-                  <span>09:18</span>
-                </div>
-                <p>
-                  용산지점 사고 접수 완료되었습니다. 내일 교환출고 부탁드립니다.
-                </p>
-              </div>
-            </div>
-            {thread.map((item, index) => (
-              <div
-                key={index}
-                className={`thread-message ${item.internal ? "internal-msg" : "agency-msg"}`}
-              >
-                <div className="thread-avatar">
-                  {item.internal ? (
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                  ) : (
-                    "김"
-                  )}
-                </div>
-                <div>
-                  <div className="thread-meta">
-                    <strong>
-                      {item.internal
-                        ? "대리점 내부 메모"
-                        : "김대리 · 서울중앙물류"}
-                    </strong>
-                    <span>{item.time}</span>
-                  </div>
-                  <p>{item.message}</p>
-                </div>
-              </div>
-            ))}
-            <TicketTimeline comments={thread} />
-          </div>
-          <div className="composer command-zone">
-            <div className="command-zone-label">
-              <span>
-                <Zap className="h-3.5 w-3.5" />
-                NEXT ACTION
-              </span>
-              <em>{internal ? "내부 협업 기록" : "화주 응대 발송 준비"}</em>
-            </div>
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex gap-1.5">
-                <button
-                  className="template-btn"
-                  onClick={() =>
-                    setReply(
-                      "용산지점 사고 접수 완료되었습니다. 내일 교환출고 부탁드립니다."
-                    )
-                  }
-                >
-                  파손 접수 안내 <ChevronDown className="h-3 w-3" />
-                </button>
-                <button
-                  onClick={() => setInternal(!internal)}
-                  className={`template-btn ${internal ? "template-btn-active" : ""}`}
-                >
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  {internal ? "내부 메모" : "화주 답변"}
-                </button>
-              </div>
-              <span className="hidden text-[10px] text-[#9aa4b1] sm:inline">
-                Ctrl + Enter 전송
-              </span>
-            </div>
-            <textarea
-              value={reply}
-              onChange={event => setReply(event.target.value)}
-              onKeyDown={event => {
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey))
-                  sendReply();
-              }}
-              placeholder="화주에게 전달할 답변을 입력하세요."
-            />
-            <div className="mt-2.5 flex items-center justify-between">
-              <button
-                className="text-[11px] font-bold text-[#8390a0] hover:text-[#0e9f95]"
-                onClick={() => toast("첨부 파일 기능을 준비했습니다.")}
-              >
-                + 파일 첨부
-              </button>
-              <Button
-                size="sm"
-                onClick={sendReply}
-                className={
-                  internal
-                    ? "bg-[#425269] hover:bg-[#334053]"
-                    : "bg-[#0e9f95] hover:bg-[#0b887f]"
-                }
-              >
-                {internal ? (
-                  <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
-                ) : (
-                  <Send className="mr-1.5 h-3.5 w-3.5" />
-                )}
-                {internal ? "내부 메모 저장" : "화주에게 답변 전송"}
-              </Button>
-            </div>
-          </div>
-        </div>
       </section>
-      {reviewOpen && (
-        <CompensationReviewDialog onClose={() => setReviewOpen(false)} />
-      )}
     </div>
   );
 }
 
 function RiskView({ shipper = false }: { shipper?: boolean }) {
   return (
-    <div className="page-enter flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
-      <div className="content-title-row">
-        <div>
-          <p className="eyebrow">DELIVERY INTELLIGENCE · LIVE DATA</p>
-          <h1>{shipper ? "배송지연 리스크 관제" : "전체 화주 배송 리스크"}</h1>
-          <p className="subtitle">
-            출고 후 72시간의 움직임을 추적해 반품비 위험에 먼저 대응합니다.
-          </p>
-        </div>
-        <div className="api-state">
-          <StatusDot />
-          택배사 API 연동 정상
-        </div>
-      </div>
-      <div className="risk-layout mt-5">
-        <div className="metric-grid risk-metrics">
-          <MetricCard
-            label="금월 총 출고 건수"
-            value="12,450"
-            detail="전월 대비 8.2% 증가"
-            icon={Package}
-            tone="navy"
-            trend="8.2%"
-          />
-          <MetricCard
-            label="3일 이내 완료율"
-            value="98.4%"
-            detail="12,251건 완료"
-            icon={ShieldCheck}
-            tone="teal"
-          />
-          <MetricCard
-            label="D+2 위험 경고"
-            value="12"
-            detail="오늘 배송 확인 필요"
-            icon={Clock3}
-            tone="amber"
-          />
-          <MetricCard
-            label="D+3 지연 · 반품비 위험"
-            value="5"
-            detail="즉시 안내가 필요합니다"
-            icon={AlertTriangle}
-            tone="red"
-          />
-        </div>
-        <aside
-          className="risk-aside"
-          style={{
-            backgroundImage: "url('/manus-storage/risk-orbit_a228f496.png')",
-          }}
-        >
-          <p className="panel-kicker">TODAY'S SIGNAL</p>
-          <strong>5건의 D+3 위험</strong>
-          <p>상위 위험 배송의 60%가 수도권 외 HUB에 집중되어 있습니다.</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => toast("지연 리포트를 준비했습니다.")}
-          >
-            리스크 리포트 <ArrowDownRight className="ml-1 h-3.5 w-3.5" />
-          </Button>
-        </aside>
-      </div>
-      <section className="data-card mt-5">
-        <div className="data-card-head">
-          <div>
-            <p className="panel-kicker">URGENCY QUEUE</p>
-            <h2>지연 위험 및 초과 건 긴급 관리</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="hidden sm:flex"
-              onClick={() => toast("필터를 열었습니다.")}
-            >
-              <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" />
-              필터
-            </Button>
-            <Button
-              size="sm"
-              className="bg-[#0e9f95] hover:bg-[#0b887f]"
-              onClick={() => toast("대리점에 긴급 확인 요청을 전달했습니다.")}
-            >
-              <Zap className="mr-1.5 h-3.5 w-3.5" />
-              긴급 확인 요청
-            </Button>
-          </div>
-        </div>
-        <div className="table-scroll">
-          <table className="operations-table">
-            <thead>
-              <tr>
-                <th>송장번호</th>
-                <th>택배사</th>
-                <th>출고 일시 (집화)</th>
-                <th>경과 시간</th>
-                <th>현재 위치 / 상태</th>
-                <th>위험 등급</th>
-                <th className="text-right">대응 액션</th>
-              </tr>
-            </thead>
-            <tbody>
-              {riskRows.map(row => (
-                <tr key={row.tracking}>
-                  <td className="font-mono font-bold text-[#26384d]">
-                    {row.tracking}
-                  </td>
-                  <td>{row.carrier}</td>
-                  <td>{row.pickup}</td>
-                  <td>
-                    <span className={`elapsed elapsed-${row.tone}`}>
-                      {row.elapsed} 경과
-                    </span>
-                  </td>
-                  <td>
-                    <span className="flex items-center gap-1.5">
-                      <MapPin className="h-3.5 w-3.5 text-[#8c9aae]" />
-                      {row.location}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`risk-badge risk-${row.tone}`}>
-                      <StatusDot tone={row.tone as "teal" | "amber" | "red"} />
-                      {row.grade}{" "}
-                      {row.tone === "red"
-                        ? "초과임박"
-                        : row.tone === "amber"
-                          ? "위험"
-                          : "관찰"}
-                    </span>
-                  </td>
-                  <td className="text-right">
-                    <button
-                      onClick={() =>
-                        toast(
-                          `${row.tracking}건에 대해 '${row.action}'을 처리했습니다.`
-                        )
-                      }
-                      className="action-link"
-                    >
-                      {row.action}
-                      <ArrowUpRight className="h-3.5 w-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
+    <DataResetNotice
+      title={shipper ? "배송지연 리스크 관제" : "전체 화주 배송 리스크"}
+      description="DB 초기화 이후 실제 배송 추적 데이터만 보이도록 샘플 리스크 보드를 숨겼습니다."
+      helper="실제 송장 추적 연동이 붙기 전까지는 이 메뉴를 빈 상태로 유지합니다. 테스트 시에는 초대·가입·정산·문서 흐름부터 먼저 확인해 주세요."
+      icon={AlertTriangle}
+    />
   );
 }
 
 function SLAView() {
   return (
-    <div className="page-enter flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
-      <div className="content-title-row">
-        <div>
-          <p className="eyebrow">NETWORK PERFORMANCE · AUG 2026</p>
-          <h1>화주별 배송 SLA</h1>
-          <p className="subtitle">
-            지연율과 터미널 병목 영향을 기준으로 관리 우선순위를 정렬합니다.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          onClick={() => toast("SLA 비교 보고서를 내려받았습니다.")}
-        >
-          <Download className="mr-1.5 h-4 w-4" />
-          SLA 리포트
-        </Button>
-      </div>
-      <div className="mini-metrics mt-5">
-        <div>
-          <span>관리 화주</span>
-          <strong>420</strong>
-          <small>전월과 동일</small>
-        </div>
-        <div>
-          <span>네트워크 평균 SLA</span>
-          <strong>97.9%</strong>
-          <small className="text-[#0e9f95]">↗ 0.7%p 개선</small>
-        </div>
-        <div>
-          <span>오늘 집중 관리</span>
-          <strong className="text-[#c55454]">7개사</strong>
-          <small>3일 내 미완료율 기준</small>
-        </div>
-        <div>
-          <span>평균 CS 응답</span>
-          <strong>31분</strong>
-          <small>목표 45분 이내</small>
-        </div>
-      </div>
-      <section className="data-card mt-5">
-        <div className="data-card-head">
-          <div>
-            <p className="panel-kicker">MULTI-SHIPPER VIEW</p>
-            <h2>대리점 화주별 배송 준수율 비교</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="table-search">
-              <Search className="h-3.5 w-3.5" />
-              <input placeholder="화주 검색" />
-            </label>
-            <button className="template-btn">
-              지연율 높은순 <ChevronDown className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
-        <div className="table-scroll">
-          <table className="operations-table">
-            <thead>
-              <tr>
-                <th>화주명</th>
-                <th>총 출고 (월)</th>
-                <th>평균 배송 소요</th>
-                <th>3일 이내 완료율</th>
-                <th>현재 D+2 위험건</th>
-                <th>이슈 상태</th>
-                <th className="text-right">관리 액션</th>
-              </tr>
-            </thead>
-            <tbody>
-              {slaRows.map(row => (
-                <tr key={row.company}>
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <span className="company-square">
-                        {row.company.replace("(주)", "").charAt(0)}
-                      </span>
-                      <strong className="text-[#26384d]">{row.company}</strong>
-                    </div>
-                  </td>
-                  <td>{row.shipments}건</td>
-                  <td>{row.average}</td>
-                  <td>
-                    <div className="rate-cell">
-                      <span className="rate-track">
-                        <i style={{ width: row.rate }} />
-                      </span>
-                      <strong>{row.rate}</strong>
-                    </div>
-                  </td>
-                  <td>
-                    <span
-                      className={
-                        row.risk === "18건"
-                          ? "font-bold text-[#c55454]"
-                          : "font-medium"
-                      }
-                    >
-                      {row.risk}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`risk-badge risk-${row.tone}`}>
-                      <StatusDot tone={row.tone as "teal" | "amber" | "red"} />
-                      {row.state}
-                    </span>
-                  </td>
-                  <td className="text-right">
-                    <button
-                      onClick={() =>
-                        toast(`${row.company} 상세 성과를 열었습니다.`)
-                      }
-                      className="action-link"
-                    >
-                      {row.action}
-                      <ArrowUpRight className="h-3.5 w-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
+    <DataResetNotice
+      title="화주별 배송 SLA"
+      description="실측 SLA 집계가 연결되기 전이라 샘플 비교표를 제거했습니다."
+      helper="실데이터 집계 쿼리가 준비되면 화주별 출고량, 준수율, 위험 건수만 다시 노출하겠습니다. 지금은 빈 화면이 정상입니다."
+      icon={SlidersHorizontal}
+    />
   );
 }
 
@@ -1577,13 +977,7 @@ const shipperCompletedCases = [
 ];
 
 function ShipperIssueSummary() {
-  const issueSummary = [
-    { type: "배송지연" as const, count: 12, rate: 48, tone: "amber", note: "가장 많이 접수됨" },
-    { type: "파손/분실" as const, count: 7, rate: 28, tone: "red", note: "증빙 검토 2건" },
-    { type: "오배송" as const, count: 4, rate: 16, tone: "purple", note: "회수 진행 1건" },
-    { type: "주소변경" as const, count: 2, rate: 8, tone: "teal", note: "당일 처리" },
-  ];
-  return <section className="shipper-summary"><div className="shipper-summary-head"><div><p className="panel-kicker">CS ISSUE SNAPSHOT · AUG 2026</p><h2>어떤 CS가 가장 많이 발생했나요?</h2></div><span><BarChart3 />최근 30일 접수 기준</span></div><div className="issue-summary-grid">{issueSummary.map(item => <article key={item.type}><div><TicketTag type={item.type} /><strong>{item.count}<small>건</small></strong></div><div className="issue-meter"><i className={`issue-${item.tone}`} style={{ width: `${item.rate}%` }} /></div><p>{item.note}</p></article>)}</div></section>;
+  return <section className="shipper-summary"><div className="shipper-summary-head"><div><p className="panel-kicker">CS ISSUE SNAPSHOT · LIVE RESET</p><h2>실제 접수 데이터가 들어오면 요약이 표시됩니다.</h2></div><span><BarChart3 />현재는 샘플 요약 숨김</span></div><div className="empty-state border border-dashed border-[#d8e1de] bg-[#fbfcfb] py-10"><div className="empty-icon"><BarChart3 /></div><h2>더미 이슈 요약을 제거했습니다.</h2><p>DB 초기화 후에는 실제 접수 건이 쌓이기 전까지 요약 차트와 건수가 비어 있는 상태가 맞습니다.</p></div></section>;
 }
 
 function ShipperPortal({ organizationName }: { organizationName: string }) {
@@ -1841,75 +1235,24 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
         ) : tab === "completed" ? (
           <>
             <ShipperIssueSummary />
-            <section className="data-card mt-5 min-h-[490px]">
-              <div className="data-card-head"><div><p className="panel-kicker">COMPLETED SERVICE REQUESTS</p><h2>처리 완료 CS 이력</h2></div><label className="table-search"><Search className="h-3.5 w-3.5" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="송장번호, 수령인 검색" /></label></div>
-              <div className="table-scroll"><table className="operations-table"><thead><tr><th>티켓번호</th><th>송장번호</th><th>수령인</th><th>문의 유형</th><th>처리 결과</th><th>담당자</th><th>완료 일시</th></tr></thead><tbody>{shipperCompletedCases.filter(ticket => `${ticket.tracking}${ticket.recipient}`.includes(search)).map(ticket => <tr key={ticket.id} className="completed-row"><td className="font-mono font-bold text-[#5a6a7f]">#{ticket.id}</td><td className="font-mono font-bold text-[#26384d]">{ticket.tracking}</td><td>{ticket.recipient}</td><td><TicketTag type={ticket.type} /></td><td className="max-w-[230px] truncate text-[#506178]">{ticket.result}</td><td>{ticket.owner}</td><td><span className="completed-date"><CheckCircle2 />{ticket.closedAt}</span></td></tr>)}</tbody></table></div>
+            <section className="data-card mt-5 min-h-[490px] flex items-center justify-center">
+              <div className="empty-state max-w-[560px]">
+                <div className="empty-icon"><CheckCircle2 /></div>
+                <h2>처리 완료 이력 더미를 제거했습니다.</h2>
+                <p>실제 완료 이력 조회가 연결되기 전까지는 샘플 티켓 번호와 송장번호를 보여주지 않습니다.</p>
+              </div>
             </section>
           </>
         ) : (
           <>
-          <ShipperIssueSummary />
-          <section className="data-card mt-5 min-h-[490px]">
-            <div className="data-card-head">
-              <div>
-                <p className="panel-kicker">YOUR SERVICE REQUESTS</p>
-                <h2>내 CS 문의 내역</h2>
+            <ShipperIssueSummary />
+            <section className="data-card mt-5 min-h-[490px] flex items-center justify-center">
+              <div className="empty-state max-w-[560px]">
+                <div className="empty-icon"><MessageSquareText /></div>
+                <h2>내 CS 문의 더미를 숨겼습니다.</h2>
+                <p>초기화된 상태에서는 실제 접수 내역이 없으므로 샘플 문의 목록 대신 빈 상태만 표시합니다. 새 문의는 상단의 건별 CS 접수로 테스트해 주세요.</p>
               </div>
-              <label className="table-search">
-                <Search className="h-3.5 w-3.5" />
-                <input
-                  value={search}
-                  onChange={event => setSearch(event.target.value)}
-                  placeholder="송장번호, 주문번호 검색"
-                />
-              </label>
-            </div>
-            <div className="table-scroll">
-              <table className="operations-table">
-                <thead>
-                  <tr>
-                    <th>티켓번호</th>
-                    <th>송장번호</th>
-                    <th>수령인</th>
-                    <th>문의 유형</th>
-                    <th>화주 담당자 메모</th>
-                    <th>대리점 최종 답변</th>
-                    <th>처리 상태</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {clientTickets.map(ticket => (
-                    <tr key={ticket.id}>
-                      <td className="font-mono font-bold text-[#5a6a7f]">
-                        #{ticket.id}
-                      </td>
-                      <td className="font-mono font-bold text-[#26384d]">
-                        {ticket.tracking}
-                      </td>
-                      <td>{ticket.recipient}</td>
-                      <td>
-                        <TicketTag type={ticket.type} />
-                      </td>
-                      <td className="max-w-[180px] truncate">{ticket.note}</td>
-                      <td className="max-w-[230px] truncate text-[#506178]">
-                        {ticket.answer}
-                      </td>
-                      <td>
-                        <span
-                          className={`risk-badge ${ticket.status === "처리중" ? "risk-amber" : "risk-teal"}`}
-                        >
-                          <StatusDot
-                            tone={ticket.status === "처리중" ? "amber" : "teal"}
-                          />
-                          {ticket.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+            </section>
           </>
         )}
       </div>
@@ -2252,12 +1595,6 @@ export default function Home() {
 
 type Permission = "전체 관리" | "티켓 관리" | "보상 검토" | "화주 관리" | "보고서 열람" | "설정 관리";
 
-const shipperDirectory = [
-  { name: "(주)에이블컴퍼니", code: "SH-1029", manager: "박지수 외 2명", ticket: "8", category: "생활·리빙", subcategory: "수납 · 주방용품", last: "09:32", shipments: "3,200", contact: "02-6012-1029", address: "경기도 고양시 일산동구", invite: "2026-08-15" },
-  { name: "글로벌커머스", code: "SH-2041", manager: "이현우 외 1명", ticket: "12", category: "패션·잡화", subcategory: "의류 · 액세서리", last: "09:15", shipments: "5,800", contact: "02-6012-2041", address: "서울특별시 금천구", invite: "2026-08-09" },
-  { name: "마인드샵", code: "SH-1180", manager: "송예린", ticket: "3", category: "도서·문구", subcategory: "도서 · 팬시", last: "어제", shipments: "2,150", contact: "02-6012-1180", address: "서울특별시 마포구", invite: "2026-08-02" },
-  { name: "올데이마켓", code: "SH-3502", manager: "한서진 외 1명", ticket: "6", category: "식품·건강", subcategory: "건강식품 · 가공식품", last: "어제", shipments: "1,920", contact: "02-6012-3502", address: "경기도 남양주시", invite: "2026-07-29" },
-];
 
 function AgreementStampDialog({ onClose }: { onClose: () => void }) {
   const [sealed, setSealed] = useState(false);
@@ -2297,15 +1634,29 @@ function AgreementStampDialog({ onClose }: { onClose: () => void }) {
 function ShippersView() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("전체 카테고리");
-  const [selected, setSelected] = useState<(typeof shipperDirectory)[number] | null>(null);
+  const [selectedToken, setSelectedToken] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [shipperName, setShipperName] = useState("");
   const [shipperBusinessNumber, setShipperBusinessNumber] = useState("");
   const [linkToken, setLinkToken] = useState("");
   const { isAuthenticated } = useAuth();
   const profile = trpc.auth.profile.useQuery(undefined, { enabled: isAuthenticated, retry: false });
-  const rows = shipperDirectory.filter(row => (category === "전체 카테고리" || row.category === category) && `${row.name}${row.code}${row.manager}${row.category}`.includes(query));
+  const history = trpc.operations.agencyShipperHistory.useQuery(undefined, { enabled: isAuthenticated, retry: false });
   const agencyName = profile.data?.organizationName || "서울중앙물류";
+  const rows = (history.data ?? []).map((item, index) => ({
+    token: item.token,
+    name: item.name,
+    code: `SH-${String(index + 1).padStart(4, "0")}`,
+    manager: item.contactCount > 0 ? `담당자 ${item.contactCount}명` : "담당자 미등록",
+    ticket: item.sealEvents.length > 0 ? String(item.sealEvents.length) : "0",
+    category: item.settlement ? "정산 등록" : "초대/가입",
+    subcategory: item.settlement ? `${item.settlement.bank} · ****${item.settlement.accountLast4}` : item.inviteStatus === "claimed" ? "가입 완료" : item.inviteStatus === "expired" ? "초대 만료" : "초대 대기",
+    last: new Date(item.claimedAt ?? item.invitedAt).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" }),
+    shipments: "-",
+    contact: item.contactCount > 0 ? `담당자 ${item.contactCount}명 연결` : "담당자 정보 없음",
+    address: "가입 후 상세 정보 확인",
+    invite: new Date(item.invitedAt).toLocaleDateString("ko-KR"),
+  })).filter(row => (category === "전체 카테고리" || row.category === category) && `${row.name}${row.code}${row.manager}${row.category}${row.subcategory}`.includes(query));
   const inviteUrl = linkToken ? (typeof window === "undefined" ? `/join/${linkToken}` : `${window.location.origin}/join/${linkToken}`) : "";
   const createInvite = trpc.invites.create.useMutation({
     onSuccess: result => {
@@ -2321,8 +1672,11 @@ function ShippersView() {
     if (!/^\d{10}$/.test(shipperBusinessNumber)) return toast.error("초대할 화주의 사업자등록번호 10자리를 숫자로 입력해 주세요.");
     createInvite.mutate({ agencyName, shipperName: shipperName.trim(), businessNumber: shipperBusinessNumber });
   };
-  if (selected) return <div className="management-page page-enter company-detail-page"><button className="back-to-directory" onClick={() => setSelected(null)}>← 화주 목록</button><div className="management-title"><div><p className="eyebrow">SHIPPER PROFILE · {selected.code}</p><h1>{selected.name}</h1><p>{selected.category} · {selected.subcategory}를 주로 취급하는 연결 화주입니다.</p></div><Button variant="outline" onClick={() => toast(`${selected.name} 담당자에게 운영 안내를 준비했습니다.`)}><Send />운영 안내 보내기</Button></div><div className="company-overview"><div className="company-profile-mark">{selected.name.replace("(주)", "").charAt(0)}</div><div><span>연결 대리점</span><strong>{agencyName}</strong><small><Link2 />초대 링크 가입일 {selected.invite}</small></div><div><span>주력 상품 카테고리</span><strong>{selected.category}</strong><small>{selected.subcategory}</small></div><div><span>월 출고 건수</span><strong>{selected.shipments}건</strong><small>최근 30일 기준</small></div></div><div className="company-detail-grid"><section><header><p className="panel-kicker">BUSINESS PROFILE</p><h2>업체 및 담당자 정보</h2></header><dl><div><dt>화주 코드</dt><dd>{selected.code}</dd></div><div><dt>사업장</dt><dd>{selected.address}</dd></div><div><dt>대표 연락처</dt><dd>{selected.contact}</dd></div><div><dt>등록 담당자</dt><dd>{selected.manager}</dd></div></dl><div className="company-members"><p>CS 수신 담당자</p><div><span>박지수</span><small>CS 담당 · 010-25**-1842</small></div><div><span>최윤서</span><small>물류 담당 · 010-78**-2240</small></div></div></section><section><header><p className="panel-kicker">CS ACTIVITY</p><h2>최근 운영 현황</h2></header><div className="company-activity"><div><strong>{selected.ticket}</strong><span>진행 CS</span></div><div><strong>18m</strong><span>평균 1차 응답</span></div><div><strong>98.6%</strong><span>배송 SLA</span></div></div><div className="company-category-card"><Package /><div><span>취급 카테고리 운영 메모</span><strong>{selected.category} 상품은 완충 포장 및 파손 증빙 안내를 우선 적용합니다.</strong></div></div><Button className="w-full bg-[#12233f] hover:bg-[#203b5e]" onClick={() => toast(`${selected.name}의 티켓 목록을 준비했습니다.`)}>이 화주의 CS 티켓 보기 <ArrowUpRight /></Button></section></div></div>;
-  return <div className="management-page page-enter"><div className="management-title"><div><p className="eyebrow">SHIPPER DIRECTORY · 420 ACCOUNTS</p><h1>화주 목록</h1><p>화주별 담당자와 주력 상품 카테고리, 진행 중인 CS 현황을 관리합니다.</p></div><Button className="bg-[#0e9f95] hover:bg-[#0b887f]" onClick={() => setInviteOpen(true)}><Plus />화주 초대</Button></div><div className="management-toolbar"><div className="search-field"><Search /><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="화주명, 코드, 담당자, 카테고리 검색" /></div><select value={category} onChange={event => setCategory(event.target.value)}><option>전체 카테고리</option><option>생활·리빙</option><option>패션·잡화</option><option>도서·문구</option><option>식품·건강</option></select><Button variant="outline" onClick={() => toast("화주 목록을 엑셀 형식으로 준비했습니다.")}><Download />내보내기</Button></div><section className="directory-grid"><div className="directory-stats"><div><span>연결 화주</span><strong>420</strong><small>이번 달 +12</small></div><div><span>활성 CS</span><strong>29</strong><small>응답 기준 92%</small></div><div><span>주력 카테고리</span><strong>12</strong><small>상품군 분류 기준</small></div></div><div className="directory-table category-directory"><div className="directory-head"><span>화주 / 코드</span><span>등록 담당자</span><span>주력 상품 카테고리</span><span>진행 CS</span><span>최근 활동</span><span /></div>{rows.map(row => <div className="directory-row" key={row.code}><div><strong>{row.name}</strong><small>{row.code}</small></div><div className="member-chip"><UsersRound />{row.manager}</div><div className="category-chip"><Package /><span><strong>{row.category}</strong><small>{row.subcategory}</small></span></div><b>{row.ticket}</b><time>{row.last}</time><button onClick={() => setSelected(row)} aria-label={`${row.name} 업체 정보 보기`}><ChevronDown /></button></div>)}{rows.length === 0 && <div className="directory-empty">선택한 조건에 맞는 화주가 없습니다.</div>}</div></section>{inviteOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="shipper-invite-title"><div className="shipper-invite-modal"><button className="modal-close" onClick={() => setInviteOpen(false)} aria-label="화주 초대 닫기"><X /></button><p className="eyebrow">SHIPPER INVITE · {agencyName.toUpperCase()}</p><h2 id="shipper-invite-title">화주 초대 링크 생성</h2><p>이 링크를 통해 가입한 화주는 {agencyName}의 화주로 자동 연결됩니다.</p><div className="invite-target-form"><label>초대할 화주사명<Input value={shipperName} onChange={event => setShipperName(event.target.value)} placeholder="예: (주)에이블컴퍼니" /></label><label>화주 사업자등록번호<Input value={shipperBusinessNumber} onChange={event => setShipperBusinessNumber(event.target.value.replace(/\D/g, "").slice(0, 10))} inputMode="numeric" placeholder="숫자 10자리" /></label></div><div className="invite-link-display"><Link2 /><span>{inviteUrl || "화주사명과 사업자등록번호를 입력한 뒤 링크를 생성해 주세요."}</span><button disabled={!linkToken} onClick={() => { navigator.clipboard?.writeText(inviteUrl); toast.success("화주 초대 링크를 복사했습니다."); }}><Copy />복사</button></div><div className="invite-flow-preview"><span>01. 링크 전달</span><ArrowRight /><span>02. 화주 정보 등록</span><ArrowRight /><span>03. 자동 소속 연결</span></div><div className="invite-modal-actions"><button onClick={generate} disabled={createInvite.isPending}>{createInvite.isPending ? "링크 생성 중..." : linkToken ? "새 링크 생성" : "링크 생성"}</button><Button onClick={() => { if (!linkToken) return toast.error("먼저 유효한 화주 초대 링크를 생성해 주세요."); setInviteOpen(false); toast.success("이 링크로 화주 공지 발송 화면을 준비했습니다."); }} className="bg-[#0e9f95] hover:bg-[#0b887f]"><Send />이 링크로 화주 공지 준비</Button></div></div></div>}</div>;
+  const selected = rows.find(row => row.token === selectedToken) ?? null;
+  if (history.isLoading) return <div className="management-page page-enter"><div className="empty-state"><div className="empty-icon"><Building2 /></div><h2>화주 목록을 불러오고 있습니다.</h2><p>초대 및 가입 이력을 실제 DB 기준으로 확인합니다.</p></div></div>;
+  if (history.isError) return <div className="management-page page-enter"><div className="empty-state"><div className="empty-icon"><AlertTriangle /></div><h2>화주 목록을 불러오지 못했습니다.</h2><p>{history.error.message}</p><Button onClick={() => history.refetch()} className="mt-4 bg-[#0e9f95] hover:bg-[#0b887f]">다시 시도</Button></div></div>;
+  if (selected) return <div className="management-page page-enter company-detail-page"><button className="back-to-directory" onClick={() => setSelectedToken("")}>← 화주 목록</button><div className="management-title"><div><p className="eyebrow">SHIPPER PROFILE · {selected.code}</p><h1>{selected.name}</h1><p>{selected.category} · {selected.subcategory}를 주로 취급하는 연결 화주입니다.</p></div><Button variant="outline" onClick={() => toast(`${selected.name} 담당자에게 운영 안내를 준비했습니다.`)}><Send />운영 안내 보내기</Button></div><div className="company-overview"><div className="company-profile-mark">{selected.name.replace("(주)", "").charAt(0)}</div><div><span>연결 대리점</span><strong>{agencyName}</strong><small><Link2 />초대 링크 가입일 {selected.invite}</small></div><div><span>주력 상품 카테고리</span><strong>{selected.category}</strong><small>{selected.subcategory}</small></div><div><span>월 출고 건수</span><strong>{selected.shipments}건</strong><small>최근 30일 기준</small></div></div><div className="company-detail-grid"><section><header><p className="panel-kicker">BUSINESS PROFILE</p><h2>업체 및 담당자 정보</h2></header><dl><div><dt>화주 코드</dt><dd>{selected.code}</dd></div><div><dt>사업장</dt><dd>{selected.address}</dd></div><div><dt>대표 연락처</dt><dd>{selected.contact}</dd></div><div><dt>등록 담당자</dt><dd>{selected.manager}</dd></div></dl><div className="company-members"><p>CS 수신 담당자</p><div><span>박지수</span><small>CS 담당 · 010-25**-1842</small></div><div><span>최윤서</span><small>물류 담당 · 010-78**-2240</small></div></div></section><section><header><p className="panel-kicker">CS ACTIVITY</p><h2>최근 운영 현황</h2></header><div className="company-activity"><div><strong>{selected.ticket}</strong><span>진행 CS</span></div><div><strong>18m</strong><span>평균 1차 응답</span></div><div><strong>98.6%</strong><span>배송 SLA</span></div></div><div className="company-category-card"><Package /><div><span>취급 카테고리 운영 메모</span><strong>{selected.category} 상품은 완충 포장 및 파손 증빙 안내를 우선 적용합니다.</strong></div></div><Button className="w-full bg-[#12233f] hover:bg-[#203b5e]" onClick={() => toast(`${selected.name}의 티켓 목록을 준비했습니다.`)}>이 화주의 CS 티켓 보기 <ArrowUpRight /></Button></section></div></div>;
+  return <div className="management-page page-enter"><div className="management-title"><div><p className="eyebrow">SHIPPER DIRECTORY · 420 ACCOUNTS</p><h1>화주 목록</h1><p>화주별 담당자와 주력 상품 카테고리, 진행 중인 CS 현황을 관리합니다.</p></div><Button className="bg-[#0e9f95] hover:bg-[#0b887f]" onClick={() => setInviteOpen(true)}><Plus />화주 초대</Button></div><div className="management-toolbar"><div className="search-field"><Search /><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="화주명, 코드, 담당자, 카테고리 검색" /></div><select value={category} onChange={event => setCategory(event.target.value)}><option>전체 카테고리</option><option>초대/가입</option><option>정산 등록</option></select><Button variant="outline" onClick={() => toast.success(`실제 DB 기준 화주 ${rows.length}개를 불러왔습니다.`)}><Download />새로고침 안내</Button></div><section className="directory-grid"><div className="directory-stats"><div><span>연결 화주</span><strong>{rows.length}</strong><small>실제 초대/가입 이력 기준</small></div><div><span>가입 완료</span><strong>{rows.filter(row => row.subcategory === "가입 완료").length}</strong><small>claimed 상태 기준</small></div><div><span>정산 등록</span><strong>{rows.filter(row => row.category === "정산 등록").length}</strong><small>정산 정보 저장 기준</small></div></div><div className="directory-table category-directory"><div className="directory-head"><span>화주 / 코드</span><span>등록 담당자</span><span>주력 상품 카테고리</span><span>진행 CS</span><span>최근 활동</span><span /></div>{rows.map(row => <div className="directory-row" key={row.code}><div><strong>{row.name}</strong><small>{row.code}</small></div><div className="member-chip"><UsersRound />{row.manager}</div><div className="category-chip"><Package /><span><strong>{row.category}</strong><small>{row.subcategory}</small></span></div><b>{row.ticket}</b><time>{row.last}</time><button onClick={() => setSelectedToken(row.token)} aria-label={`${row.name} 업체 정보 보기`}><ChevronDown /></button></div>)}{rows.length === 0 && <div className="directory-empty">선택한 조건에 맞는 화주가 없습니다.</div>}</div></section>{inviteOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="shipper-invite-title"><div className="shipper-invite-modal"><button className="modal-close" onClick={() => setInviteOpen(false)} aria-label="화주 초대 닫기"><X /></button><p className="eyebrow">SHIPPER INVITE · {agencyName.toUpperCase()}</p><h2 id="shipper-invite-title">화주 초대 링크 생성</h2><p>이 링크를 통해 가입한 화주는 {agencyName}의 화주로 자동 연결됩니다.</p><div className="invite-target-form"><label>초대할 화주사명<Input value={shipperName} onChange={event => setShipperName(event.target.value)} placeholder="예: (주)에이블컴퍼니" /></label><label>화주 사업자등록번호<Input value={shipperBusinessNumber} onChange={event => setShipperBusinessNumber(event.target.value.replace(/\D/g, "").slice(0, 10))} inputMode="numeric" placeholder="숫자 10자리" /></label></div><div className="invite-link-display"><Link2 /><span>{inviteUrl || "화주사명과 사업자등록번호를 입력한 뒤 링크를 생성해 주세요."}</span><button disabled={!linkToken} onClick={() => { navigator.clipboard?.writeText(inviteUrl); toast.success("화주 초대 링크를 복사했습니다."); }}><Copy />복사</button></div><div className="invite-flow-preview"><span>01. 링크 전달</span><ArrowRight /><span>02. 화주 정보 등록</span><ArrowRight /><span>03. 자동 소속 연결</span></div><div className="invite-modal-actions"><button onClick={generate} disabled={createInvite.isPending}>{createInvite.isPending ? "링크 생성 중..." : linkToken ? "새 링크 생성" : "링크 생성"}</button><Button onClick={() => { if (!linkToken) return toast.error("먼저 유효한 화주 초대 링크를 생성해 주세요."); setInviteOpen(false); toast.success("이 링크로 화주 공지 발송 화면을 준비했습니다."); }} className="bg-[#0e9f95] hover:bg-[#0b887f]"><Send />이 링크로 화주 공지 준비</Button></div></div></div>}</div>;
 }
 
 function ShipperOperationsHistoryView() {
@@ -2344,8 +1698,18 @@ function ShipperOperationsHistoryView() {
 
 function ReportsView() {
   const [period, setPeriod] = useState("이번 주");
-  return <div className="management-page page-enter"><div className="management-title"><div><p className="eyebrow">OPERATIONS REPORT · WEEK 35</p><h1>업무 보고서</h1><p>CS 응답, 보상 처리, 배송 리스크의 운영 신호를 빠르게 확인합니다.</p></div><div className="report-actions"><select value={period} onChange={event => setPeriod(event.target.value)}><option>오늘</option><option>이번 주</option><option>이번 달</option></select><Button variant="outline" onClick={() => toast(`${period} 업무 보고서를 다운로드용으로 준비했습니다.`)}><FileSpreadsheet />보고서 내보내기</Button></div></div><div className="report-kpis"><MetricCard label="처리 완료 티켓" value="61" detail="목표 대비 104%" icon={CheckCircle2} tone="teal" trend="8%" /><MetricCard label="평균 1차 응답" value="18m" detail="전주 22m" icon={Clock3} tone="navy" trend="18%" /><MetricCard label="보상 검토 대기" value="07" detail="오늘 마감 2건" icon={FilePenLine} tone="amber" /><MetricCard label="SLA 주의 화주" value="03" detail="응답 기준 미달" icon={AlertTriangle} tone="red" /></div><div className="report-board"><section className="report-chart"><header><div><p className="panel-kicker">VOLUME TREND · {period}</p><h2>일별 CS 유입과 완료</h2></div><span className="report-legend"><i />접수 <i />완료</span></header><div className="bar-chart">{[42,58,35,66,49,72,61].map((height,index) => <div key={index}><div className="bars"><i style={{ height: `${height}%` }} /><b style={{ height: `${Math.max(18,height - 12)}%` }} /></div><span>{["월","화","수","목","금","토","일"][index]}</span></div>)}</div></section><section className="report-queue"><header><p className="panel-kicker">ACTION REQUIRED</p><h2>오늘 확인할 항목</h2></header><div><span className="report-signal amber" /><p><strong>보상 검토 마감</strong><small>에이블컴퍼니 · TK-89210</small></p><time>17:00</time></div><div><span className="report-signal red" /><p><strong>SLA 응답 주의</strong><small>글로벌커머스 · 신규 4건</small></p><time>14:30</time></div><div><span className="report-signal teal" /><p><strong>일일 보고서 발행</strong><small>서울중앙물류 운영팀</small></p><time>18:00</time></div></section></div><section className="report-summary"><p className="panel-kicker">MANAGER SUMMARY</p><h2>요약 인사이트</h2><p>보상 검토 대기 7건 중 2건이 오늘 마감입니다. 사고 보상팀 담당자를 우선 배정하고, 배송 지연이 집중된 글로벌커머스의 오후 배송 상태를 확인하세요.</p></section></div>;
+  const history = trpc.operations.agencyShipperHistory.useQuery(undefined, { retry: false });
+  if (history.isLoading) return <div className="management-page page-enter"><div className="empty-state"><div className="empty-icon"><ClipboardList /></div><h2>업무 보고서를 준비하고 있습니다.</h2><p>실제 초대·정산·문서 이력을 집계 중입니다.</p></div></div>;
+  if (history.isError) return <div className="management-page page-enter"><div className="empty-state"><div className="empty-icon"><AlertTriangle /></div><h2>업무 보고서를 불러오지 못했습니다.</h2><p>{history.error.message}</p><Button onClick={() => history.refetch()} className="mt-4 bg-[#0e9f95] hover:bg-[#0b887f]">다시 시도</Button></div></div>;
+  const rows = history.data ?? [];
+  const claimed = rows.filter(item => item.inviteStatus === "claimed").length;
+  const pendingSettlement = rows.filter(item => !item.settlement || item.settlement.status !== "verified").length;
+  const documentCount = rows.reduce((sum, item) => sum + item.sealEvents.length, 0);
+  const downloads = rows.reduce((sum, item) => sum + item.downloadEvents.length, 0);
+  if (rows.length === 0) return <div className="management-page page-enter"><div className="management-title"><div><p className="eyebrow">OPERATIONS REPORT · LIVE RESET</p><h1>업무 보고서</h1><p>실제 초대·정산·문서 이력이 아직 없어 보고서도 빈 상태로 유지합니다.</p></div><div className="report-actions"><select value={period} onChange={event => setPeriod(event.target.value)}><option>오늘</option><option>이번 주</option><option>이번 달</option></select></div></div><div className="report-kpis"><MetricCard label="가입 완료 화주" value={`${claimed}`} detail="실제 DB claimed 초대 기준" icon={CheckCircle2} tone="teal" /><MetricCard label="초대 대기 화주" value={`${rows.length - claimed}`} detail="active/expired 포함" icon={Clock3} tone="navy" /><MetricCard label="정산 확인 필요" value={`${pendingSettlement}`} detail="정산 정보 미등록 또는 검토중" icon={FilePenLine} tone="amber" /><MetricCard label="문서/다운로드 이력" value={`${documentCount}/${downloads}`} detail="직인 이벤트 / PDF 다운로드" icon={AlertTriangle} tone="red" /></div><section className="data-card mt-5 flex min-h-[360px] items-center justify-center"><div className="empty-state max-w-[560px]"><div className="empty-icon"><ClipboardList /></div><h2>표시할 운영 보고서가 없습니다.</h2><p>현재 보이는 KPI만 실제 DB 기준입니다. 아래 일별 추이 차트와 할 일 보드는 샘플 데이터라 숨겨 두었습니다.</p></div></section></div>;
+  return <div className="management-page page-enter"><div className="management-title"><div><p className="eyebrow">OPERATIONS REPORT · WEEK 35</p><h1>업무 보고서</h1><p>CS 응답, 보상 처리, 배송 리스크의 운영 신호를 빠르게 확인합니다.</p></div><div className="report-actions"><select value={period} onChange={event => setPeriod(event.target.value)}><option>오늘</option><option>이번 주</option><option>이번 달</option></select></div></div><div className="report-kpis"><MetricCard label="가입 완료 화주" value={`${claimed}`} detail="실제 DB claimed 초대 기준" icon={CheckCircle2} tone="teal" /><MetricCard label="초대 대기 화주" value={`${rows.length - claimed}`} detail="active/expired 포함" icon={Clock3} tone="navy" /><MetricCard label="정산 확인 필요" value={`${pendingSettlement}`} detail="정산 정보 미등록 또는 검토중" icon={FilePenLine} tone="amber" /><MetricCard label="문서/다운로드 이력" value={`${documentCount}/${downloads}`} detail="직인 이벤트 / PDF 다운로드" icon={AlertTriangle} tone="red" /></div><section className="data-card mt-5 flex min-h-[360px] items-center justify-center"><div className="empty-state max-w-[560px]"><div className="empty-icon"><ClipboardList /></div><h2>리포트 상세는 아직 실데이터 연동 전입니다.</h2><p>상단 KPI만 실제 DB 기준으로 표시하고, 차트·액션보드는 더미 데이터가 섞이지 않도록 숨겨 두었습니다.</p></div></section></div>;
 }
+
 
 const permissionRows: { name: string; role: string; organization: string; permissions: Permission[]; initial: string }[] = [
   { name: "김대리", role: "운영 리더", organization: "서울중앙물류", permissions: ["전체 관리"], initial: "김" },

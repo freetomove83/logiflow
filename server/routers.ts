@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByBusinessNumber, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, getShipperInvitesByAgencyUserId, getShipperSealByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, upsertAccountPermissions, upsertShipperSeal, upsertShipperSettlementProfile, upsertUser } from "./db";
+import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByBusinessNumber, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, getShipperInvitesByAgencyUserId, getShipperSealByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, upsertShipperSettlementProfile, upsertUser } from "./db";
 import { hashPassword, verifyPassword } from "./credentials";
 import { evidenceCategories, safeEvidenceFileName, validateEvidenceUpload } from "./evidence";
 import { validateSealUpload } from "./seal";
@@ -56,6 +56,16 @@ export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
+  admin: router({
+    resetDemoData: protectedProcedure.mutation(async ({ ctx }) => {
+      const account = await getCredentialAccountByUserId(ctx.user.id);
+      if (ctx.user.role !== "admin" && account?.organizationType !== "agency") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "대리점 운영자만 테스트 데이터를 초기화할 수 있습니다." });
+      }
+      await truncateOperationalData();
+      return { success: true } as const;
+    }),
+  }),
     me: publicProcedure.query(opts => opts.ctx.user),
     profile: protectedProcedure.query(async ({ ctx }) => {
       const account = await getCredentialAccountByUserId(ctx.user.id);

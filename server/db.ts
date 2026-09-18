@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { accountPermissions, credentialAccounts, documentDownloadEvents, documentSealEvents, InsertAccountPermission, InsertCredentialAccount, InsertDocumentDownloadEvent, InsertDocumentSealEvent, InsertShipperInvite, InsertShipperSeal, InsertShipperSettlementProfile, InsertStaffInvite, InsertTicketEvidence, InsertUser, shipperInvites, shipperSeals, shipperSettlementProfiles, staffInvites, ticketEvidence, users } from "../drizzle/schema";
@@ -262,4 +262,10 @@ export async function getDocumentDownloadEventsByShipperUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(documentDownloadEvents).where(eq(documentDownloadEvents.shipperUserId, userId));
+}
+
+export async function truncateOperationalData() {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  await db.execute(sql`TRUNCATE TABLE document_download_events, document_seal_events, shipper_settlement_profiles, shipper_seals, ticket_evidence, account_permissions, staff_invites, shipper_invites, credential_accounts, users RESTART IDENTITY CASCADE`);
 }

@@ -1,0 +1,28 @@
+name: logiflow-cs
+app: node@22
+options:
+  build: corepack enable && pnpm install --frozen-lockfile && pnpm build
+  start: node dist/index.js
+  env:
+    - name: PORT
+      value: "8080"
+    - name: NODE_ENV
+      value: production
+    - name: DATABASE_URL
+      value: postgresql://postgres.zhbywvqxjerwsykdssvn:%23K%2310m54s01h2@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres
+    - name: JWT_SECRET
+      value: TQeSUC/GL5ASi2U7YFDieg/rBRO9iipF/dyLp7MZrGjDJsnwymHdSqX2Uc+zmHVE
+    - name: ADMIN_LOGIN_ID
+      value: ""
+    - name: AGENCY_SIGNUP_CODE
+      value: ""
+    - name: S3_ENDPOINT
+      value: https://zhbywvqxjerwsykdssvn.supabase.co/storage/v1/s3
+    - name: S3_REGION
+      value: ap-northeast-2
+    - name: S3_BUCKET
+      value: logiflow-files
+    - name: S3_ACCESS_KEY_ID
+      value: c23bde19ae1752685598a7860128a236
+    - name: S3_SECRET_ACCESS_KEY
+      value: ec35cd2cf864a3dee952c4a96541348c17922a4aefa3ccae9556dc4b1440dbf1

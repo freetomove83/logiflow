@@ -11,6 +11,7 @@ import {
   BadgeCheck,
   BarChart3,
   Bell,
+  Menu,
   Building2,
   Check,
   CheckCircle2,
@@ -1223,6 +1224,97 @@ function CsPopupSettingsCard({ side }: { side: "agency" | "shipper" }) {
   );
 }
 
+function AgencyNoticeManager() {
+  const utils = trpc.useUtils();
+  const list = trpc.announcements.list.useQuery(undefined, { retry: false });
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [endsAt, setEndsAt] = useState("");
+  const create = trpc.announcements.create.useMutation({
+    onSuccess: async () => { await utils.announcements.list.invalidate(); setTitle(""); setBody(""); setEndsAt(""); toast.success("공지를 등록했습니다. 화주 대시보드에 즉시 표시됩니다."); },
+    onError: error => toast.error(error.message),
+  });
+  const remove = trpc.announcements.delete.useMutation({
+    onSuccess: async () => { await utils.announcements.list.invalidate(); toast.success("공지를 삭제했습니다."); },
+    onError: error => toast.error(error.message),
+  });
+  const submit = () => {
+    if (title.trim().length < 2) return toast.error("공지 제목을 2자 이상 입력해 주세요.");
+    if (body.trim().length < 2) return toast.error("공지 내용을 2자 이상 입력해 주세요.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(endsAt)) return toast.error("공지 표시 종료일을 선택해 주세요.");
+    create.mutate({ title: title.trim(), body: body.trim(), endsAt });
+  };
+  const rows = list.data ?? [];
+  return (
+    <section className="data-card mt-5">
+      <div className="data-card-head">
+        <div><p className="panel-kicker">SHIPPER NOTICE</p><h2>화주 공지 관리</h2></div>
+        <Badge className="bg-[#edf7f5] text-[#197a70]">등록 {rows.length}건</Badge>
+      </div>
+      <div className="px-4 pb-4 pt-1 sm:px-[18px] sm:pb-[18px]">
+        <div className="grid gap-2.5 md:grid-cols-[minmax(0,1fr)_190px_auto]">
+          <Input value={title} onChange={event => setTitle(event.target.value)} placeholder="공지 제목 (예: 추석 연휴 배송 일정 안내)" />
+          <Input type="date" value={endsAt} onChange={event => setEndsAt(event.target.value)} aria-label="공지 표시 종료일" />
+          <Button size="sm" disabled={create.isPending} onClick={submit} className="bg-[#0e9f95] hover:bg-[#0b887f]"><Plus />공지 등록</Button>
+          <textarea className="notice-textarea md:col-span-3" value={body} onChange={event => setBody(event.target.value)} rows={3} placeholder="공지 내용을 입력하세요. 화주 대시보드의 내 CS 문의 위쪽에 제목·본문 그대로 표시됩니다." />
+        </div>
+        <div className="notice-admin-list">
+          {list.isLoading ? <p className="notice-empty">공지를 불러오는 중입니다.</p> : rows.length === 0 ? <p className="notice-empty">아직 등록된 공지가 없습니다. 표시 종료일을 정해 첫 공지를 등록해 주세요.</p> : rows.map(notice => {
+            const expired = new Date(notice.endsAt).getTime() < Date.now();
+            return (
+              <div key={notice.id} className="notice-admin-row">
+                <div className="min-w-0">
+                  <strong>{notice.title}{expired ? " · 기간 만료" : ""}</strong>
+                  <small>표시 기간 {new Date(notice.startsAt).toLocaleDateString("ko-KR")} ~ {new Date(notice.endsAt).toLocaleDateString("ko-KR")} · 읽음 {notice.readCount}/{notice.totalCount}</small>
+                  {!expired && notice.unreadNames.length > 0 ? <small className="notice-unread">미읽음: {notice.unreadNames.join(", ")}</small> : null}
+                </div>
+                <button type="button" onClick={() => { if (window.confirm(`공지 "${notice.title}"을(를) 삭제합니다. 계속하시겠습니까?`)) remove.mutate({ id: notice.id }); }} aria-label="공지 삭제"><Trash2 /></button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ShipperAnnouncementBoard() {
+  const utils = trpc.useUtils();
+  const list = trpc.announcements.shipperList.useQuery(undefined, { retry: false, refetchInterval: 30000 });
+  const markRead = trpc.announcements.markRead.useMutation({
+    onSuccess: async () => { await utils.announcements.shipperList.invalidate(); toast.success("공지를 읽음 처리했습니다."); },
+    onError: error => toast.error(error.message),
+  });
+  const [folded, setFolded] = useState<Record<number, boolean>>({});
+  const notices = list.data ?? [];
+  if (list.isLoading || notices.length === 0) return null;
+  return (
+    <div className="notice-board">
+      {notices.map(notice => {
+        const isFolded = notice.read ? folded[notice.id] ?? true : false;
+        return (
+          <article key={notice.id} className={`notice-card${notice.read ? " is-read" : ""}`}>
+            <header>
+              <strong><Bell className="mr-1.5 inline h-3.5 w-3.5 text-[#0e9f95]" />{notice.title}</strong>
+              {notice.read ? (
+                <button type="button" className="notice-fold" aria-label={isFolded ? "공지 펼치기" : "공지 접기"} onClick={() => setFolded(current => ({ ...current, [notice.id]: !(current[notice.id] ?? true) }))}><Menu /></button>
+              ) : (
+                <button type="button" className="notice-read-btn" disabled={markRead.isPending} onClick={() => markRead.mutate({ id: notice.id })}>읽음</button>
+              )}
+            </header>
+            {!isFolded && (
+              <div className="notice-body">
+                <p>{notice.body}</p>
+                <small>공지 기간 {new Date(notice.startsAt).toLocaleDateString("ko-KR")} ~ {new Date(notice.endsAt).toLocaleDateString("ko-KR")}{notice.read ? " · 읽음 확인 완료" : ""}</small>
+              </div>
+            )}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 function OverviewView({ onOpenTickets }: { onOpenTickets: () => void }) {
   const csList = trpc.cs.list.useQuery(undefined, { retry: false });
   const history = trpc.operations.agencyShipperHistory.useQuery(undefined, { retry: false });
@@ -1341,6 +1433,7 @@ function OverviewView({ onOpenTickets }: { onOpenTickets: () => void }) {
           </div>
         </>
       )}
+          <AgencyNoticeManager />
     </div>
   );
 }
@@ -2212,6 +2305,7 @@ function ShipperPortal({ organizationName, accountRole }: { organizationName: st
           <ShipperSettingsView isOwner={isOwner} />
         ) : (
           <>
+            <ShipperAnnouncementBoard />
             <ShipperIssueSummary tickets={csList.data ?? []} />
             <section className="data-card mt-5">
               <div className="data-card-head"><div><p className="panel-kicker">MY CS TICKETS</p><h2>내 CS 문의</h2></div><Badge className="bg-[#edf7f5] text-[#197a70]">실시간 조회</Badge></div>

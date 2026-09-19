@@ -1,7 +1,7 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { accountPermissions, credentialAccounts, CsTicketEventRow, CsTicketRow, csTicketEvents, csTickets, documentDownloadEvents, documentSealEvents, InsertAccountPermission, InsertCredentialAccount, InsertCsTicket, InsertCsTicketEvent, InsertDocumentDownloadEvent, InsertDocumentSealEvent, InsertShipperInvite, ShipperInvite, InsertShipperSeal, InsertShipperSettlementProfile, InsertStaffInvite, InsertTicketEvidence, InsertUser, shipperInvites, shipperContacts, shipperSeals, shipperSettlementProfiles, staffInvites, ticketEvidence, users } from "../drizzle/schema";
+import { accountPermissions, agencyAnnouncements, agencyAnnouncementReads, InsertAgencyAnnouncement, credentialAccounts, CsTicketEventRow, CsTicketRow, csTicketEvents, csTickets, documentDownloadEvents, documentSealEvents, InsertAccountPermission, InsertCredentialAccount, InsertCsTicket, InsertCsTicketEvent, InsertDocumentDownloadEvent, InsertDocumentSealEvent, InsertShipperInvite, ShipperInvite, InsertShipperSeal, InsertShipperSettlementProfile, InsertStaffInvite, InsertTicketEvidence, InsertUser, shipperInvites, shipperContacts, shipperSeals, shipperSettlementProfiles, staffInvites, ticketEvidence, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -437,3 +437,45 @@ export async function deleteShipperWithInvite(invite: ShipperInvite): Promise<bo
   return Boolean(uid);
 }
 
+
+export async function createAgencyAnnouncement(values: InsertAgencyAnnouncement) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  const [row] = await db.insert(agencyAnnouncements).values(values).returning();
+  return row;
+}
+
+export async function getAgencyAnnouncementsByAgencyUserId(agencyUserId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(agencyAnnouncements).where(eq(agencyAnnouncements.agencyUserId, agencyUserId)).orderBy(desc(agencyAnnouncements.createdAt));
+}
+
+export async function getActiveAgencyAnnouncements(agencyUserId: number) {
+  const rows = await getAgencyAnnouncementsByAgencyUserId(agencyUserId);
+  const now = Date.now();
+  return rows.filter(row => new Date(row.startsAt).getTime() <= now && now <= new Date(row.endsAt).getTime());
+}
+
+export async function createAnnouncementRead(announcementId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  const existing = await db.select().from(agencyAnnouncementReads).where(and(eq(agencyAnnouncementReads.announcementId, announcementId), eq(agencyAnnouncementReads.userId, userId))).limit(1);
+  if (existing[0]) return existing[0];
+  const [row] = await db.insert(agencyAnnouncementReads).values({ announcementId, userId }).returning();
+  return row;
+}
+
+export async function getAnnouncementReadsByAnnouncementIds(ids: number[]) {
+  const db = await getDb();
+  if (!db || ids.length === 0) return [];
+  return db.select().from(agencyAnnouncementReads).where(inArray(agencyAnnouncementReads.announcementId, ids));
+}
+
+export async function deleteAgencyAnnouncement(id: number, agencyUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  const deleted = await db.delete(agencyAnnouncements).where(and(eq(agencyAnnouncements.id, id), eq(agencyAnnouncements.agencyUserId, agencyUserId))).returning();
+  if (deleted[0]) await db.delete(agencyAnnouncementReads).where(eq(agencyAnnouncementReads.announcementId, id));
+  return deleted[0] ?? null;
+}

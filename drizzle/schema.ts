@@ -231,3 +231,28 @@ export const shipperContacts = pgTable("shipper_contacts", {
 
 export type ShipperContact = typeof shipperContacts.$inferSelect;
 export type InsertShipperContact = typeof shipperContacts.$inferInsert;
+
+/** Agency notices shown above the shipper CS list, with a display period. */
+export const agencyAnnouncements = pgTable("agency_announcements", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  agencyUserId: integer("agencyUserId").notNull(),
+  createdByUserId: integer("createdByUserId").notNull(),
+  title: varchar("title", { length: 120 }).notNull(),
+  body: text("body").notNull(),
+  startsAt: timestamp("startsAt").defaultNow().notNull(),
+  endsAt: timestamp("endsAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AgencyAnnouncementRow = typeof agencyAnnouncements.$inferSelect;
+export type InsertAgencyAnnouncement = typeof agencyAnnouncements.$inferInsert;
+
+/** Per-shipper read receipts for agency announcements (keyed by the shipper org owner). */
+export const agencyAnnouncementReads = pgTable("agency_announcement_reads", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  announcementId: integer("announcementId").notNull(),
+  userId: integer("userId").notNull(),
+  readAt: timestamp("readAt").defaultNow().notNull(),
+});
+
+export type AgencyAnnouncementReadRow = typeof agencyAnnouncementReads.$inferSelect;

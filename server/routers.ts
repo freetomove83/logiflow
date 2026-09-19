@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createCsTicket, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByOrganization, getOrganizationOwnerAccount, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, deleteShipperSettlementProfile, getCsTicketByCode, setCsTicketFollowByCode, createCsTicketEvent, getCsTicketEventsByTicketCodes, markAllShipperFeedbackSeen, markShipperFeedbackSeen, getCsTicketsByAgencyUser, getCsTicketsByShipperUser, getShipperSettlementProfileByUserId, getStaffInviteByToken, getTicketEvidenceByRequestRef, updateCsTicketByAgency, updateCsTicketByShipper, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, updateCredentialAccountCourier, upsertShipperSettlementProfile, upsertUser, deleteShipperWithInvite } from "./db";
+import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createCsTicket, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByOrganization, getOrganizationOwnerAccount, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, deleteShipperSettlementProfile, getCsTicketByCode, setCsTicketFollowByCode, createCsTicketEvent, getCsTicketEventsByTicketCodes, markAllShipperFeedbackSeen, markShipperFeedbackSeen, getCsTicketsByAgencyUser, getCsTicketsByShipperUser, getShipperSettlementProfileByUserId, getStaffInviteByToken, getTicketEvidenceByRequestRef, updateCsTicketByAgency, updateCsTicketByShipper, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, updateCredentialAccountCourier, upsertShipperSettlementProfile, upsertUser, deleteShipperWithInvite, createAgencyAnnouncement, getAgencyAnnouncementsByAgencyUserId, getActiveAgencyAnnouncements, createAnnouncementRead, getAnnouncementReadsByAnnouncementIds, deleteAgencyAnnouncement } from "./db";
 import { hashPassword, verifyPassword } from "./credentials";
 import { evidenceCategories, safeEvidenceFileName, validateEvidenceUpload } from "./evidence";
 import { validateSealUpload } from "./seal";
@@ -612,6 +612,64 @@ export const appRouter = router({
       await updateCsTicketByShipper(input.ticketCode, ctx.orgOwnerUserId, { status: "처리 완료" });
       const account = await getCredentialAccountByUserId(ctx.user.id);
       await createCsTicketEvent({ ticketCode: input.ticketCode, actorUserId: ctx.user.id, actorRole: "shipper", actorName: account?.organizationName || "화주", action: `CS 마무리 · 상태 ${ticket.status} → 처리 완료 (화주 확인 종결)` });
+      return { success: true } as const;
+    }),
+  }),
+  announcements: router({
+    create: agencyProcedure.input(z.object({
+      title: z.string().trim().min(2).max(120),
+      body: z.string().trim().min(2).max(4000),
+      endsAt: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "공지 표시 종료일을 선택해 주세요."),
+    })).mutation(async ({ ctx, input }) => {
+      const endsAt = new Date(`${input.endsAt}T23:59:59+09:00`);
+      if (Number.isNaN(endsAt.getTime()) || endsAt.getTime() <= Date.now()) throw new TRPCError({ code: "BAD_REQUEST", message: "공지 표시 종료일은 오늘 이후 날짜로 설정해 주세요." });
+      const row = await createAgencyAnnouncement({ agencyUserId: ctx.orgOwnerUserId, createdByUserId: ctx.user.id, title: input.title, body: input.body, endsAt });
+      return { id: row.id } as const;
+    }),
+    list: agencyProcedure.query(async ({ ctx }) => {
+      const rows = await getAgencyAnnouncementsByAgencyUserId(ctx.orgOwnerUserId);
+      const invites = (await getShipperInvitesByAgencyUserId(ctx.orgOwnerUserId)).filter(invite => invite.status === "claimed" && invite.claimedByUserId);
+      const reads = await getAnnouncementReadsByAnnouncementIds(rows.map(row => row.id));
+      return rows.map(row => {
+        const readUserIds = new Set(reads.filter(read => read.announcementId === row.id).map(read => read.userId));
+        const recipients = invites.map(invite => ({ userId: invite.claimedByUserId as number, name: invite.shipperName || `화주 #${invite.claimedByUserId}` }));
+        const unread = recipients.filter(recipient => !readUserIds.has(recipient.userId));
+        return {
+          id: row.id,
+          title: row.title,
+          body: row.body,
+          startsAt: row.startsAt,
+          endsAt: row.endsAt,
+          createdAt: row.createdAt,
+          readCount: recipients.length - unread.length,
+          totalCount: recipients.length,
+          unreadNames: unread.map(item => item.name),
+        };
+      });
+    }),
+    shipperList: orgProcedure.query(async ({ ctx }) => {
+      const actor = ctx.orgAccount;
+      if (!actor || actor.organizationType !== "shipper") return [];
+      const invite = await getClaimedShipperInviteByUserId(ctx.orgOwnerUserId);
+      if (!invite) return [];
+      const rows = await getActiveAgencyAnnouncements(invite.agencyUserId);
+      const reads = await getAnnouncementReadsByAnnouncementIds(rows.map(row => row.id));
+      const readSet = new Set(reads.filter(read => read.userId === ctx.orgOwnerUserId).map(read => read.announcementId));
+      return rows.map(row => ({ id: row.id, title: row.title, body: row.body, startsAt: row.startsAt, endsAt: row.endsAt, read: readSet.has(row.id) }));
+    }),
+    markRead: orgProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const actor = ctx.orgAccount;
+      if (!actor || actor.organizationType !== "shipper") throw new TRPCError({ code: "FORBIDDEN", message: "화주 계정으로만 읽음 처리를 할 수 있습니다." });
+      const invite = await getClaimedShipperInviteByUserId(ctx.orgOwnerUserId);
+      if (!invite) throw new TRPCError({ code: "FORBIDDEN", message: "연결된 대리점을 찾을 수 없습니다." });
+      const rows = await getActiveAgencyAnnouncements(invite.agencyUserId);
+      if (!rows.some(row => row.id === input.id)) throw new TRPCError({ code: "NOT_FOUND", message: "공지를 찾을 수 없거나 표시 기간이 지났습니다." });
+      await createAnnouncementRead(input.id, ctx.orgOwnerUserId);
+      return { success: true } as const;
+    }),
+    delete: agencyProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const row = await deleteAgencyAnnouncement(input.id, ctx.orgOwnerUserId);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "공지를 찾을 수 없습니다." });
       return { success: true } as const;
     }),
   }),

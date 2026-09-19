@@ -350,7 +350,7 @@ const navItems: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
 function Logo({ inverse = false }: { inverse?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
-      <svg viewBox="0 0 36 36" className="h-9 w-9 shrink-0 rounded-[9px]" role="img" aria-label="LogiFlow 심볼"><rect width="36" height="36" rx="9" fill="#0e9f95" /><text x="18" y="23.5" textAnchor="middle" fontSize="12" fontWeight="800" fill="#ffffff" fontFamily="Manrope, sans-serif" letterSpacing="-0.5">LF</text></svg>
+      <span className="logo-mark"><Sparkles /></span>
       <div className="leading-none">
         <p
           className={`font-display text-[19px] font-extrabold tracking-[-0.07em] ${inverse ? "text-white" : "text-[#12233f]"}`}
@@ -733,7 +733,7 @@ function AgencySidebar({
         className="sidebar-utility mt-auto overflow-hidden"
         style={{
           backgroundImage:
-            "linear-gradient(180deg, rgba(18,35,63,.82), rgba(18,35,63,.95)), url('/manus-storage/terminal-grid_8ed3d839.png')",
+            "linear-gradient(180deg, rgba(18,35,63,.82), rgba(18,35,63,.95))",
         }}
       >
         {!compact && (

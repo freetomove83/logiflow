@@ -120,8 +120,9 @@ export function ShipperJoinPage() {
   const [complete, setComplete] = useState(false);
   const sealUpload = trpc.seal.upload.useMutation();
   const settlementSave = trpc.operations.upsertSettlement.useMutation();
-  const { isAuthenticated, loading: authLoading } = useAuth();
-  const inviteInfo = trpc.invites.shipperSetup.useQuery({ token }, { retry: false });
+   const { isAuthenticated, loading: authLoading } = useAuth();
+   const canEditSensitiveInfo = isAuthenticated && !authLoading;
+   const inviteInfo = trpc.invites.shipperSetup.useQuery({ token }, { retry: false });
   const addContact = () => setContacts(current => [...current, { name: "", department: "", phone: "" }]);
   const updateContact = (index: number, field: "name" | "department" | "phone", value: string) => setContacts(current => current.map((contact, i) => i === index ? { ...contact, [field]: value } : contact));
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {

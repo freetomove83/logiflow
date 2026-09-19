@@ -193,7 +193,7 @@ export const appRouter = router({
     create: agencyProcedure.input(z.object({
       agencyName: z.string().trim().min(2).max(255),
       shipperName: z.string().trim().min(2).max(255),
-      contractNumber: z.string().trim().regex(/^[0-9A-Za-z-]{6,24}$/, "계약 택배 번호(송장번호) 6~24자를 입력해 주세요."),
+      contractNumber: z.string().trim().regex(/^[0-9A-Za-z-]{6,24}$/, "계약 택배 번호 6~24자를 입력해 주세요."),
     })).mutation(async ({ ctx, input }) => {
       const actorAccount = await getCredentialAccountByUserId(ctx.user.id);
       const agencyName = actorAccount?.organizationName || input.agencyName;
@@ -218,7 +218,7 @@ export const appRouter = router({
     update: agencyProcedure.input(z.object({
       id: z.number().int().positive(),
       shipperName: z.string().trim().min(2).max(255),
-      contractNumber: z.string().trim().regex(/^[0-9A-Za-z-]{6,24}$/, "계약 택배 번호(송장번호) 6~24자를 입력해 주세요."),
+      contractNumber: z.string().trim().regex(/^[0-9A-Za-z-]{6,24}$/, "계약 택배 번호 6~24자를 입력해 주세요."),
     })).mutation(async ({ ctx, input }) => {
       const invite = await updateShipperInviteByOwner(input.id, ctx.user.id, { shipperName: input.shipperName, contractNumber: input.contractNumber });
       if (!invite) throw new TRPCError({ code: "NOT_FOUND", message: "수정할 초대 링크를 찾지 못했습니다." });

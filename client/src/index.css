@@ -248,3 +248,15 @@ button:active { transform: scale(.98); }
   .cs-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cs-ticket-history { flex-basis: 100%; border-left: 0; border-top: 1px dashed #e2e9e3; padding: 10px 0 0; }
 }
+
+/* CS detail modal (double click) */
+.cs-detail-modal { position: relative; display: grid; gap: 11px; width: min(680px, calc(100vw - 30px)); max-height: calc(100vh - 60px); overflow-y: auto; }
+.cs-detail-modal .cs-ticket-history { flex-basis: auto; max-height: 190px; border-left: 0; border-top: 1px dashed #e2e9e3; padding: 10px 0 0; }
+.cs-detail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.cs-detail-grid > div { border: 1px solid #e7eee9; border-radius: 7px; background: #f7faf7; padding: 8px 10px; }
+.cs-detail-grid small { display: block; font-size: 8.5px; font-weight: 800; letter-spacing: .06em; color: #8a99a5; }
+.cs-detail-grid p { margin: 3px 0 0; font-size: 11px; font-weight: 700; color: #33475a; word-break: break-all; }
+.cs-detail-section small { display: block; font-size: 9px; font-weight: 800; letter-spacing: .08em; color: #7d8f9d; }
+.cs-detail-section > p { margin: 4px 0 0; font-size: 11.5px; color: #43596d; white-space: pre-wrap; }
+.cs-detail-empty { margin: 4px 0 0; font-size: 10px; color: #9aa8b4; }
+@media (max-width: 720px) { .cs-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

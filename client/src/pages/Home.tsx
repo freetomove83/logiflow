@@ -114,9 +114,9 @@ type CheckDetail = "대리점 확인중" | "기사 확인중";
 
 const isUnreadTicket = (ticket: CsTicket) => Boolean(ticket.feedbackAt && (!ticket.feedbackSeenAt || new Date(ticket.feedbackAt) > new Date(ticket.feedbackSeenAt)));
 
-function CsTicketHistory({ ticket }: { ticket: CsTicket }) {
+function CsTicketHistory({ ticket, hideBulk, onDoubleClick }: { ticket: CsTicket; hideBulk?: boolean; onDoubleClick?: React.MouseEventHandler<HTMLElement> }) {
   return (
-    <aside className="cs-ticket-history" aria-label={`${ticket.code} 처리 히스토리`}>
+    <aside className="cs-ticket-history" onDoubleClick={onDoubleClick} aria-label={`${ticket.code} 처리 히스토리`}>
       <p className="cs-history-title">HISTORY</p>
       {ticket.events.length === 0 ? (
         <p className="cs-history-empty">아직 기록이 없습니다.</p>
@@ -126,7 +126,7 @@ function CsTicketHistory({ ticket }: { ticket: CsTicket }) {
             <li key={event.id}>
               <span className={`cs-history-dot ${event.actorRole}`} />
               <div>
-                <p>{event.action}</p>
+                <p>{hideBulk ? event.action.replace(" · 일괄 처리", "") : event.action}</p>
                 <small>{event.actorName || (event.actorRole === "shipper" ? "화주" : "대리점")} · {new Date(event.createdAt).toLocaleString("ko-KR")}</small>
               </div>
             </li>
@@ -825,6 +825,53 @@ function TrackingLookup() {
   return <div className="track-shell"><Truck className="h-4 w-4" /><Input className="h-8 w-44 border-0 bg-transparent px-1 text-[12px] shadow-none focus-visible:ring-0" value={trackingNumber} onChange={event => setTrackingNumber(event.target.value)} placeholder="송장번호 입력 후 조회" onKeyDown={event => { if (event.key === "Enter") submit(); }} /><button type="button" className="track-button" onClick={submit}>조회</button></div>;
 }
 
+function csDisplayStatus(ticket: CsTicket): string {
+  return ticket.status === "확인 중" && ticket.checkDetail ? ticket.checkDetail : ticket.status;
+}
+
+function CsDetailModal({ ticket, onClose, hideBulk }: { ticket: CsTicket; onClose: () => void; hideBulk?: boolean }) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`${ticket.code} 상세`}>
+      <div className="shipper-invite-modal cs-detail-modal">
+        <button className="modal-close" onClick={onClose} aria-label="CS 상세 닫기"><X /></button>
+        <p className="eyebrow">CS TICKET DETAIL</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <strong className="text-lg text-[#2c4357]">{ticket.code}</strong>
+          <TicketTag type={ticket.type} />
+          <Badge className={ticket.status === "확인 중" && ticket.checkDetail ? ticketStatusStyles["확인 중"] : ticketStatusStyles[ticket.status]}>{csDisplayStatus(ticket)}</Badge>
+          {ticket.isIssue && <Badge className="bg-[#f9eded] text-[#b04a4a] border-[#efd7d7]">이슈건</Badge>}
+        </div>
+        <div className="cs-detail-grid">
+          <div><small>접수 주체</small><p>{ticket.createdByRole === "shipper" ? "화주 접수" : "대리점 접수"}</p></div>
+          <div><small>접수 시각</small><p>{new Date(ticket.createdAt).toLocaleString("ko-KR")}</p></div>
+          <div><small>송장번호</small><p>{ticket.trackingNumber || "-"}</p></div>
+          <div><small>수령인</small><p>{ticket.recipient || "-"}</p></div>
+        </div>
+        <div className="cs-detail-section">
+          <small>상세 내용</small>
+          <p>{ticket.note}</p>
+        </div>
+        {ticket.result ? <div className="cs-detail-section"><small>처리결과</small><p>{ticket.result}</p></div> : null}
+        {ticket.isIssue && ticket.issueNote ? <div className="cs-detail-section"><small>이슈 사유</small><p>{ticket.issueNote}</p></div> : null}
+        <div className="cs-detail-section">
+          <small>첨부 증빙 {ticket.evidence.length}건</small>
+          {ticket.evidence.length === 0 ? <p className="cs-detail-empty">첨부된 증빙이 없습니다.</p> : (
+            <div className="cs-ticket-evidence">
+              {ticket.evidence.map((ev, index) => (
+                <a key={index} href={ev.url} target="_blank" rel="noreferrer">{evidenceRules[ev.category]?.label ?? ev.category} · {ev.fileName}</a>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="cs-detail-section">
+          <small>처리 히스토리</small>
+          <CsTicketHistory ticket={ticket} hideBulk={hideBulk} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TicketsView() {
   const utils = trpc.useUtils();
   const csList = trpc.cs.list.useQuery(undefined, { retry: false });
@@ -867,6 +914,8 @@ function TicketsView() {
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
   const [bulkDetail, setBulkDetail] = useState<CheckDetail>("대리점 확인중");
   const [issueEditCode, setIssueEditCode] = useState<string | null>(null);
+  const [detailCode, setDetailCode] = useState<string | null>(null);
+  const detailTicket = detailCode ? rows.find(ticket => ticket.code === detailCode) ?? null : null;
   const [issueEditText, setIssueEditText] = useState("");
   const toggleSelect = (code: string) => setSelectedCodes(current => current.includes(code) ? current.filter(item => item !== code) : [...current, code]);
   return (
@@ -918,7 +967,7 @@ function TicketsView() {
               const pendingType = typeEdits[ticket.code] ?? ticket.type;
               const pendingCheck = checkEdits[ticket.code] ?? ticket.checkDetail ?? "대리점 확인중";
               return (
-                <article className={`cs-ticket-card${ticket.isIssue ? " is-issue" : ""}`} key={ticket.code}>
+                <article className={`cs-ticket-card${ticket.isIssue ? " is-issue" : ""}`} key={ticket.code} onDoubleClick={() => setDetailCode(ticket.code)} title="더블클릭하면 상세 내용이 열립니다.">
                   <label className="cs-ticket-check">
                     <input type="checkbox" checked={selectedCodes.includes(ticket.code)} onChange={() => toggleSelect(ticket.code)} aria-label={`${ticket.code} 선택`} />
                   </label>
@@ -926,8 +975,7 @@ function TicketsView() {
                     <div className="flex flex-wrap items-center gap-2">
                       <strong>{ticket.code}</strong>
                       <TicketTag type={ticket.type} />
-                      <Badge className={ticketStatusStyles[ticket.status]}>{ticket.status}</Badge>
-                      {ticket.status === "확인 중" && ticket.checkDetail && <Badge className="bg-[#eef2f8] text-[#33527a] border-[#dbe4ec]">{ticket.checkDetail}</Badge>}
+                      <Badge className={ticket.status === "확인 중" && ticket.checkDetail ? ticketStatusStyles["확인 중"] : ticketStatusStyles[ticket.status]}>{csDisplayStatus(ticket)}</Badge>
                       {ticket.isIssue && <Badge className="bg-[#f9eded] text-[#b04a4a] border-[#efd7d7]">이슈건</Badge>}
                       <small>{ticket.createdByRole === "shipper" ? "화주 접수" : "대리점 접수"} · {new Date(ticket.createdAt).toLocaleString("ko-KR")}</small>
                     </div>
@@ -942,7 +990,7 @@ function TicketsView() {
                       </div>
                     )}
                   </div>
-                  <div className="cs-ticket-actions">
+                  <div className="cs-ticket-actions" onDoubleClick={event => event.stopPropagation()}>
                     {(ticket.status === "접수" || ticket.status === "확인 중") && <button className="cs-action" onClick={() => csUpdate.mutate({ ticketCode: ticket.code, status: "확인 중", checkDetail: ticket.checkDetail ?? "대리점 확인중" })}>확인 중 전환</button>}
                     {(ticket.status === "접수" || ticket.status === "확인 중") && <button className="cs-action amber" onClick={() => { if (window.confirm(`${ticket.code} 티켓을 보상 접수 요청 상태로 전환합니다. 화주가 보상 증빙을 등록하면 보상 검토로 이동합니다.`)) csUpdate.mutate({ ticketCode: ticket.code, status: "보상 접수 요청" }); }}>보상 접수 요청</button>}
                     {ticket.status === "보상 검토" && <button className="cs-action teal" onClick={() => { if (window.confirm(`${ticket.code} 티켓을 보상 확정 처리합니다.`)) csUpdate.mutate({ ticketCode: ticket.code, status: "보상 확정" }); }}>보상 확정</button>}
@@ -974,7 +1022,7 @@ function TicketsView() {
                       <button disabled={pendingType === ticket.type} onClick={() => { csUpdate.mutate({ ticketCode: ticket.code, type: pendingType }); setTypeEdits(current => { const next = { ...current }; delete next[ticket.code]; return next; }); }}>유형 변경</button>
                     </div>
                   </div>
-                  <CsTicketHistory ticket={ticket} />
+                  <CsTicketHistory ticket={ticket} onDoubleClick={event => event.stopPropagation()} />
                 </article>
               );
             })}
@@ -1020,6 +1068,7 @@ function TicketsView() {
           </div>
         </div>
       )}
+      {detailTicket && <CsDetailModal ticket={detailTicket} onClose={() => setDetailCode(null)} />}
     </div>
   );
 }
@@ -1183,6 +1232,8 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
   const unreadFeedbackCount = (csList.data ?? []).filter(isUnreadTicket).length;
   const [compensationProofs, setCompensationProofs] = useState<EvidenceFile[]>([]);
   const [compensationTarget, setCompensationTarget] = useState("");
+  const [detailCode, setDetailCode] = useState<string | null>(null);
+  const detailTicket = detailCode ? (csList.data ?? []).find(ticket => ticket.code === detailCode) ?? null : null;
   const compensationInputRef = useRef<HTMLInputElement>(null);
   const selectedFiles = {
     damage_photo: damagePhotos,
@@ -1333,13 +1384,12 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
     }
   };
   const renderTicketCard = (ticket: CsTicket) => (
-    <article className="cs-ticket-card" key={ticket.code}>
+    <article className="cs-ticket-card" key={ticket.code} onDoubleClick={() => setDetailCode(ticket.code)} title="더블클릭하면 상세 내용이 열립니다.">
       <div className="cs-ticket-main">
         <div className="flex flex-wrap items-center gap-2">
           <strong>{ticket.code}</strong>
           <TicketTag type={ticket.type} />
-          <Badge className={ticketStatusStyles[ticket.status]}>{ticket.status}</Badge>
-          {ticket.status === "확인 중" && ticket.checkDetail && <Badge className="bg-[#eef2f8] text-[#33527a] border-[#dbe4ec]">{ticket.checkDetail}</Badge>}
+          <Badge className={ticket.status === "확인 중" && ticket.checkDetail ? ticketStatusStyles["확인 중"] : ticketStatusStyles[ticket.status]}>{csDisplayStatus(ticket)}</Badge>
           {ticket.isIssue && <Badge className="bg-[#f9eded] text-[#b04a4a] border-[#efd7d7]">이슈건</Badge>}
           {isUnreadTicket(ticket) && <Badge className="bg-[#fdeef0] text-[#c0455a] border-[#f4d3d8]">새 피드백</Badge>}
           <small>{ticket.createdByRole === "shipper" ? "내가 접수" : "대리점 접수"} · {new Date(ticket.createdAt).toLocaleString("ko-KR")}</small>
@@ -1418,9 +1468,9 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
           </div>
         )}
       </div>
-      <CsTicketHistory ticket={ticket} />
+      <CsTicketHistory ticket={ticket} hideBulk onDoubleClick={event => event.stopPropagation()} />
       {ticket.status === "보상 접수 요청" && compensationTarget !== ticket.code && (
-        <div className="cs-ticket-actions">
+        <div className="cs-ticket-actions" onDoubleClick={event => event.stopPropagation()}>
           <button className="cs-action amber" onClick={() => setCompensationTarget(ticket.code)}>보상 증빙 등록</button>
         </div>
       )}
@@ -1550,6 +1600,7 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
           </>
         )}
       </div>
+      {detailTicket && <CsDetailModal ticket={detailTicket} hideBulk onClose={() => setDetailCode(null)} />}
       {showForm && (
         <div
           className="modal-backdrop"

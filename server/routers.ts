@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, updateCredentialAccountCourier, upsertShipperSettlementProfile, upsertUser } from "./db";
+import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, updateCredentialAccountCourier, upsertShipperSettlementProfile, upsertUser, deleteShipperWithInvite } from "./db";
 import { hashPassword, verifyPassword } from "./credentials";
 import { evidenceCategories, safeEvidenceFileName, validateEvidenceUpload } from "./evidence";
 import { validateSealUpload } from "./seal";
@@ -91,6 +91,7 @@ export const appRouter = router({
       password: z.string().min(10, "비밀번호는 10자 이상으로 설정해 주세요.").max(128),
       contacts: z.array(z.object({ name: z.string().trim().min(1).max(100), department: z.string().trim().max(100).default(""), phone: z.string().trim().max(40).default("") })).max(10).optional(),
       businessAddress: z.string().trim().max(255).optional(),
+      productCategory: z.string().trim().max(100).optional(),
       inviteToken: z.string().trim().min(8).max(80).optional(),
       staffInviteToken: z.string().trim().min(8).max(80).optional(),
       courier: z.string().trim().min(1).max(40).optional(),
@@ -137,6 +138,7 @@ export const appRouter = router({
           accountRole,
           businessNumber: input.businessNumber,
           businessAddress: input.businessAddress ?? "",
+          productCategory: input.productCategory ?? "",
           organizationName: input.organizationName,
           contactName: input.contactName,
           loginId: input.loginId,
@@ -192,6 +194,12 @@ export const appRouter = router({
     }),
   }),
   invites: router({
+    deleteShipper: agencyProcedure.input(z.object({ token: z.string().trim().min(8).max(80) })).mutation(async ({ ctx, input }) => {
+      const invite = await getShipperInviteByToken(input.token);
+      if (!invite || invite.agencyUserId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND", message: "삭제할 화주 연결을 찾을 수 없습니다." });
+      const removedAccount = await deleteShipperWithInvite(invite);
+      return { removedAccount } as const;
+    }),
     create: agencyProcedure.input(z.object({
       agencyName: z.string().trim().min(2).max(255),
       shipperName: z.string().trim().min(2).max(255),
@@ -360,6 +368,7 @@ export const appRouter = router({
           name: invite.shipperName,
           contractNumber: invite.contractNumber,
           businessAddress: owner?.businessAddress || null,
+          productCategory: owner?.productCategory || null,
           inviteStatus: invite.status,
           invitedAt: invite.createdAt,
           expiresAt: invite.expiresAt,

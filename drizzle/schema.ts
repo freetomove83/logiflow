@@ -43,6 +43,7 @@ export const credentialAccounts = pgTable("credential_accounts", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),  courier: varchar("courier", { length: 40 }),
   businessAddress: varchar("businessAddress", { length: 255 }).default("").notNull(),
+  productCategory: varchar("productCategory", { length: 100 }).default("").notNull(),
 
 });
 

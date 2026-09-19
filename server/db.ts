@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { accountPermissions, credentialAccounts, documentDownloadEvents, documentSealEvents, InsertAccountPermission, InsertCredentialAccount, InsertDocumentDownloadEvent, InsertDocumentSealEvent, InsertShipperInvite, InsertShipperSeal, InsertShipperSettlementProfile, InsertStaffInvite, InsertTicketEvidence, InsertUser, shipperInvites, shipperContacts, shipperSeals, shipperSettlementProfiles, staffInvites, ticketEvidence, users } from "../drizzle/schema";
+import { accountPermissions, credentialAccounts, documentDownloadEvents, documentSealEvents, InsertAccountPermission, InsertCredentialAccount, InsertDocumentDownloadEvent, InsertDocumentSealEvent, InsertShipperInvite, ShipperInvite, InsertShipperSeal, InsertShipperSettlementProfile, InsertStaffInvite, InsertTicketEvidence, InsertUser, shipperInvites, shipperContacts, shipperSeals, shipperSettlementProfiles, staffInvites, ticketEvidence, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -317,3 +317,23 @@ export async function updateCredentialAccountCourier(userId: number, courier: st
   const result = await db.update(credentialAccounts).set({ courier }).where(eq(credentialAccounts.userId, userId)).returning();
   return result[0];
 }
+
+export async function deleteShipperWithInvite(invite: ShipperInvite): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  const uid = invite.claimedByUserId;
+  if (uid) {
+    await db.delete(shipperContacts).where(eq(shipperContacts.shipperUserId, uid));
+    await db.delete(shipperSettlementProfiles).where(eq(shipperSettlementProfiles.userId, uid));
+    await db.delete(shipperSeals).where(eq(shipperSeals.userId, uid));
+    await db.delete(documentSealEvents).where(eq(documentSealEvents.shipperUserId, uid));
+    await db.delete(documentDownloadEvents).where(eq(documentDownloadEvents.shipperUserId, uid));
+    await db.delete(ticketEvidence).where(eq(ticketEvidence.userId, uid));
+    await db.delete(accountPermissions).where(eq(accountPermissions.userId, uid));
+    await db.delete(credentialAccounts).where(eq(credentialAccounts.userId, uid));
+    await db.delete(users).where(eq(users.id, uid));
+  }
+  await db.delete(shipperInvites).where(eq(shipperInvites.id, invite.id));
+  return Boolean(uid);
+}
+

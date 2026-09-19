@@ -88,7 +88,7 @@ const applyFontScale = (value: number) => {
 
 const fontPresets: Array<[number, string]> = [[0.9, "작게"], [1, "기본"], [1.1, "크게"], [1.25, "더 크게"], [1.4, "최대"]];
 
-type View = "dashboard" | "tickets" | "risk" | "sla" | "shippers" | "history" | "reports" | "settings";
+type View = "dashboard" | "tickets" | "track" | "risk" | "sla" | "shippers" | "history" | "reports" | "settings";
 
 type TicketType = "파손/분실" | "배송지연" | "오배송" | "주소변경" | "미수령 확인요청" | "배송문의" | "기타";
 type TicketStatus = "접수" | "확인 중" | "보상 접수 요청" | "보상 검토" | "보상 확정" | "처리 완료";
@@ -142,7 +142,7 @@ function CsTicketHistory({ ticket, hideBulk, onDoubleClick }: { ticket: CsTicket
             <li key={event.id}>
               <span className={`cs-history-dot ${event.actorRole}`} />
               <div>
-                <p>{hideBulk ? event.action.replace(" · 일괄 처리", "") : event.action}</p>
+                <p>{event.action.startsWith("답변 등록") ? (event.actorRole === "agency" ? "대리점이 답변을 등록했습니다" : "화주가 답변을 등록했습니다") : hideBulk ? event.action.replace(" · 일괄 처리", "") : event.action}</p>
                 <small>{event.actorName || (event.actorRole === "shipper" ? "화주" : "대리점")} · {new Date(event.createdAt).toLocaleString("ko-KR")}</small>
               </div>
             </li>
@@ -752,9 +752,11 @@ function AgencySidebar({
 function AgencyHeader({
   compact,
   setCompact,
+  onOpenTrack,
 }: {
   compact: boolean;
   setCompact: (value: boolean) => void;
+  onOpenTrack: (value: string) => void;
 }) {
   const { logout } = useAuth();
   return (
@@ -777,17 +779,8 @@ function AgencyHeader({
         </span>
         <ChevronDown className="h-3.5 w-3.5" />
       </button>
-      <TrackingLookup />
-      <label className="search-shell ml-auto max-w-[410px]">
-        <Search className="h-4 w-4" />
-        <Input
-          className="h-9 border-0 bg-transparent px-1 text-[13px] shadow-none focus-visible:ring-0"
-          placeholder="송장, 화주, 수령인 통합 검색"
-        />
-        <kbd className="hidden rounded border border-[#dfe4df] bg-white px-1.5 py-0.5 text-[10px] font-medium text-[#8794a6] md:inline">
-          ⌘ K
-        </kbd>
-      </label>
+      <TrackingLookup onOpenTrack={onOpenTrack} />
+      <GlobalSearch />
       <Button
         variant="outline"
         size="sm"
@@ -796,16 +789,7 @@ function AgencyHeader({
       >
         <UserCog className="mr-1.5 h-4 w-4" />직원 권한
       </Button>
-      <button
-        className="relative rounded-lg p-2.5 text-[#435267] hover:bg-[#f1f4f1]"
-        onClick={() => toast("새 알림 12건을 확인했습니다.")}
-        aria-label="알림"
-      >
-        <Bell className="h-[18px] w-[18px]" />
-        <span className="absolute right-1.5 top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[#d45151] px-1 text-[8px] font-bold text-white">
-          12
-        </span>
-      </button>
+      <NotificationBell />
       <Button
         type="button"
         variant="outline"
@@ -831,12 +815,11 @@ function ShipperCountValue() {
   return <>{list.data?.length ?? "..."}</>;
 }
 
-function TrackingLookup() {
+function TrackingLookup({ onOpenTrack }: { onOpenTrack: (value: string) => void }) {
   const [trackingNumber, setTrackingNumber] = useState("");
-  const utils = trpc.useUtils();
   const submit = () => {
     if (!/^[0-9A-Za-z-]{6,24}$/.test(trackingNumber)) return toast.error("송장번호 6~24자를 입력해 주세요.");
-    toast.promise(utils.tracking.lookup.fetch({ trackingNumber }).then(result => result.message), { success: message => message, error: error => (error instanceof Error ? error.message : "배송 조회에 실패했습니다.") });
+    onOpenTrack(trackingNumber.trim());
   };
   return <div className="track-shell"><Truck className="h-4 w-4" /><Input className="h-8 w-44 border-0 bg-transparent px-1 text-[12px] shadow-none focus-visible:ring-0" value={trackingNumber} onChange={event => setTrackingNumber(event.target.value)} placeholder="송장번호 입력 후 조회" onKeyDown={event => { if (event.key === "Enter") submit(); }} /><button type="button" className="track-button" onClick={submit}>조회</button></div>;
 }
@@ -880,11 +863,348 @@ function CsDetailModal({ ticket, onClose, hideBulk }: { ticket: CsTicket; onClos
           )}
         </div>
         <div className="cs-detail-section">
+          <small>문의 · 답변 스레드</small>
+          <CsReplyThread ticket={ticket} />
+        </div>
+        <div className="cs-detail-section">
           <small>처리 히스토리</small>
           <CsTicketHistory ticket={ticket} hideBulk={hideBulk} />
         </div>
       </div>
     </div>
+  );
+}
+
+function GlobalSearch() {
+  const csList = trpc.cs.list.useQuery(undefined, { retry: false });
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [selectedCode, setSelectedCode] = useState<string | null>(null);
+  const rows = csList.data ?? [];
+  const keyword = query.trim().toLowerCase();
+  const results = keyword
+    ? rows.filter(ticket => [ticket.code, ticket.trackingNumber, ticket.shipperName, ticket.recipient, ticket.note, ticket.result].join(" ").toLowerCase().includes(keyword)).slice(0, 8)
+    : [];
+  const selectedTicket = selectedCode ? rows.find(ticket => ticket.code === selectedCode) ?? null : null;
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        inputRef.current?.focus();
+        setOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+  return (
+    <div className="relative ml-auto w-full max-w-[410px]">
+      <label className="search-shell">
+        <Search className="h-4 w-4" />
+        <Input
+          ref={inputRef}
+          className="h-9 border-0 bg-transparent px-1 text-[13px] shadow-none focus-visible:ring-0"
+          placeholder="송장, 화주, 수령인 통합 검색"
+          value={query}
+          onChange={event => { setQuery(event.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={event => {
+            if (event.key === "Escape") { setOpen(false); inputRef.current?.blur(); }
+            if (event.key === "Enter" && results[0]) { setSelectedCode(results[0].code); setOpen(false); inputRef.current?.blur(); }
+          }}
+        />
+        <kbd className="hidden rounded border border-[#dfe4df] bg-white px-1.5 py-0.5 text-[10px] font-medium text-[#8794a6] md:inline">⌘ K</kbd>
+      </label>
+      {open && keyword.length > 0 && (
+        <div className="global-search-panel">
+          {csList.isLoading ? <p className="global-search-empty">검색 결과를 불러오는 중입니다.</p>
+            : results.length === 0 ? <p className="global-search-empty">검색 결과가 없습니다. 송장번호, 화주명, 수령인, 티켓번호로 검색해 주세요.</p>
+            : results.map(ticket => (
+              <button key={ticket.code} type="button" className="global-search-row" onClick={() => { setSelectedCode(ticket.code); setOpen(false); inputRef.current?.blur(); }}>
+                <span className="global-search-main"><strong>{ticket.code}</strong><TicketTag type={ticket.type} /></span>
+                <span className="global-search-sub">{ticket.shipperName} · 수령인 {ticket.recipient || "-"} · 송장 {ticket.trackingNumber || "-"}</span>
+                <Badge className={ticketStatusStyles[ticket.status]}>{csDisplayStatus(ticket)}</Badge>
+              </button>
+            ))}
+        </div>
+      )}
+      {open && keyword.length > 0 && <div className="search-backdrop" onClick={() => setOpen(false)} />}
+      {selectedTicket && <CsDetailModal ticket={selectedTicket} onClose={() => setSelectedCode(null)} />}
+    </div>
+  );
+}
+
+function NotificationBell() {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const csList = trpc.cs.list.useQuery(undefined, { retry: false, refetchInterval: 15000 });
+  const [open, setOpen] = useState(false);
+  const [lastRead, setLastRead] = useState(0);
+  useEffect(() => {
+    if (!userId) return;
+    const stored = Number(window.localStorage.getItem(`logiflow:notify:lastRead:${userId}`) ?? "0");
+    setLastRead(Number.isFinite(stored) ? stored : 0);
+  }, [userId]);
+  const rows = csList.data ?? [];
+  const events = rows
+    .flatMap(ticket => ticket.events.filter(event => event.actorRole === "shipper").map(event => ({ ...event, ticketCode: ticket.code, shipperName: ticket.shipperName })))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const unread = events.filter(event => new Date(event.createdAt).getTime() > lastRead);
+  const markAllRead = () => {
+    if (!userId) return;
+    const now = Date.now();
+    window.localStorage.setItem(`logiflow:notify:lastRead:${userId}`, String(now));
+    setLastRead(now);
+  };
+  return (
+    <>
+      <button
+        className="relative rounded-lg p-2.5 text-[#435267] hover:bg-[#f1f4f1]"
+        onClick={() => setOpen(current => !current)}
+        aria-label="알림"
+      >
+        <Bell className="h-[18px] w-[18px]" />
+        {unread.length > 0 && (
+          <span className="absolute right-1.5 top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[#d45151] px-1 text-[8px] font-bold text-white">
+            {unread.length}
+          </span>
+        )}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="notify-layer" role="dialog" aria-label="알림 목록">
+            <header>
+              <div><p className="panel-kicker">NOTIFICATIONS</p><h2>실시간 알림</h2></div>
+              <div className="flex items-center gap-1.5">
+                <button type="button" className="cs-action teal" onClick={markAllRead} disabled={unread.length === 0}>모두 읽음</button>
+                <button type="button" className="notify-x" onClick={() => setOpen(false)} aria-label="알림 닫기"><X /></button>
+              </div>
+            </header>
+            {events.length === 0 ? (
+              <p className="notify-empty">아직 화주 알림이 없습니다. 화주가 CS를 접수하거나 답변을 남기면 이곳에 표시됩니다.</p>
+            ) : (
+              <ul>
+                {events.slice(0, 12).map(event => (
+                  <li key={event.id}>
+                    <span className="cs-history-dot shipper" />
+                    <div>
+                      <p><strong>{event.shipperName}</strong> · {event.ticketCode} — {event.action.startsWith("CS 접수") ? "CS가 등록되었습니다" : event.action.startsWith("답변 등록") ? "답변이 등록되었습니다" : event.action}</p>
+                      <small>{event.actorName || "화주"} · {new Date(event.createdAt).toLocaleString("ko-KR")}</small>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+function CsReplyThread({ ticket }: { ticket: CsTicket }) {
+  const utils = trpc.useUtils();
+  const [text, setText] = useState("");
+  const csReply = trpc.cs.reply.useMutation({
+    onSuccess: async () => {
+      await utils.cs.list.invalidate();
+      toast.success("답변을 등록했습니다. 상대 포털 히스토리에도 기록됩니다.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const replies = ticket.events.filter(event => event.action.startsWith("답변 등록"));
+  const submit = () => {
+    if (text.trim().length < 2) return toast.error("답변을 2자 이상 입력해 주세요.");
+    csReply.mutate({ ticketCode: ticket.code, message: text.trim() }, { onSuccess: () => setText("") });
+  };
+  return (
+    <div className="cs-reply-thread">
+      <div className={`cs-thread-bubble ${ticket.createdByRole}`}>
+        <small>{ticket.createdByRole === "shipper" ? "화주 문의" : "대리점 문의"} · {new Date(ticket.createdAt).toLocaleString("ko-KR")}</small>
+        <p>{ticket.note}</p>
+      </div>
+      {replies.map(event => (
+        <div className={`cs-thread-bubble ${event.actorRole} is-reply`} key={event.id}>
+          <small>{event.actorRole === "agency" ? "대리점이 답변을 등록했습니다" : "화주가 답변을 등록했습니다"} · {new Date(event.createdAt).toLocaleString("ko-KR")}</small>
+          <p>{event.action.replace(/^답변 등록 · /, "")}</p>
+        </div>
+      ))}
+      <div className="cs-thread-form">
+        <input
+          value={text}
+          onChange={event => setText(event.target.value)}
+          placeholder="답글로 남길 내용을 입력하세요"
+          onKeyDown={event => { if (event.key === "Enter" && !csReply.isPending) submit(); }}
+        />
+        <button type="button" className="cs-action teal" disabled={csReply.isPending} onClick={submit}>답글 등록</button>
+      </div>
+    </div>
+  );
+}
+
+function TrackView({ trackingNumber, onBack }: { trackingNumber: string; onBack: () => void }) {
+  const valid = /^[0-9A-Za-z-]{6,24}$/.test(trackingNumber);
+  const lookup = trpc.tracking.lookup.useQuery({ trackingNumber }, { enabled: valid, retry: false });
+  const steps = ["접수", "간선 이동", "배달 준비", "배달 완료"];
+  return (
+    <div className="page-enter flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
+      <div className="content-title-row">
+        <div>
+          <p className="eyebrow">TRACKING LOOKUP</p>
+          <h1>송장 조회</h1>
+          <p className="subtitle">송장번호 {trackingNumber || "-"} 조회 전용 화면입니다.</p>
+        </div>
+        <Button variant="outline" onClick={onBack}><ArrowRight className="mr-1.5 h-4 w-4 rotate-180" />CS 티켓 관리로 돌아가기</Button>
+      </div>
+      <section className="data-card">
+        <div className="data-card-head">
+          <div><p className="panel-kicker">CARRIER</p><h2>{lookup.data?.courier ? `${lookup.data.courier} 조회` : "택배사 미지정"}</h2></div>
+          <Badge className="bg-[#edf7f5] text-[#197a70]">조회 API 연동 준비 중</Badge>
+        </div>
+        <div className="px-4 pb-4 pt-1 sm:px-[18px] sm:pb-[18px]">
+          <p className="text-xs text-[#43596d]">{lookup.isLoading ? "조회 정보를 불러오는 중입니다." : lookup.data?.message ?? "조회 정보를 불러오는 중입니다."}</p>
+          <div className="mt-4 grid gap-2">
+            {steps.map((step, index) => (
+              <div key={step} className="flex items-center gap-3">
+                <span className={`cs-history-dot ${index === 0 ? "agency" : "muted"}`} />
+                <span className="text-xs font-bold text-[#4a5c6e]">{step}</span>
+                <span className="text-[11px] text-[#8a99a5]">{index === 0 ? "운송장 접수 확인" : "택배사 API 연동 후 표시"}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-4 rounded-lg border border-[#e2e9e3] bg-[#f7faf7] p-3 text-[11px] leading-relaxed text-[#637287]">
+            조회 버튼을 누르면 항상 이 송장 조회 화면으로 이동합니다. 이후 택배사 실시간 추적 API가 연결되면 동일 화면에 배송 상태가 표시되고, 조회 대상 택배사는 대리점 설정의 본사 택배사 값을 사용합니다.
+          </p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+type PopupPosition = "bottom-right" | "bottom-left" | "top-right" | "top-left";
+const popupPositionClass: Record<PopupPosition, string> = {
+  "bottom-right": "bottom-4 right-4 items-end",
+  "bottom-left": "bottom-4 left-4 items-start",
+  "top-right": "top-4 right-4 items-end",
+  "top-left": "top-4 left-4 items-start",
+};
+const popupPositionOptions: { id: PopupPosition; label: string }[] = [
+  { id: "top-left", label: "좌측 상단" },
+  { id: "top-right", label: "우측 상단" },
+  { id: "bottom-left", label: "좌측 하단" },
+  { id: "bottom-right", label: "우측 하단" },
+];
+const readPopupEnabled = (userId: number | null): boolean => {
+  if (!userId) return true;
+  return window.localStorage.getItem(`logiflow:popup:enabled:${userId}`) !== "off";
+};
+const readPopupPosition = (userId: number | null): PopupPosition => {
+  if (!userId) return "bottom-right";
+  const stored = window.localStorage.getItem(`logiflow:popup:pos:${userId}`);
+  return stored === "bottom-left" || stored === "top-right" || stored === "top-left" ? stored : "bottom-right";
+};
+
+function CsPopupWatcher({ side }: { side: "agency" | "shipper" }) {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const csList = trpc.cs.list.useQuery(undefined, { retry: false, refetchInterval: 15000 });
+  const agencyNameQuery = trpc.operations.shipperDocumentDashboard.useQuery(undefined, { retry: false, enabled: side === "shipper" });
+  const [popups, setPopups] = useState<{ key: string; title: string; body: string }[]>([]);
+  const baseline = useRef<number | null>(null);
+  useEffect(() => { baseline.current = null; }, [userId]);
+  useEffect(() => {
+    const rows = csList.data;
+    if (!rows || !userId) return;
+    if (!readPopupEnabled(userId)) { baseline.current = Date.now(); return; }
+    if (baseline.current === null) {
+      const times = rows.flatMap(ticket => ticket.events.map(event => new Date(event.createdAt).getTime()));
+      baseline.current = Math.max(Date.now(), ...(times.length ? times : [Date.now()]));
+      return;
+    }
+    const fresh = rows
+      .flatMap(ticket => ticket.events
+        .filter(event => (side === "agency" ? event.actorRole === "shipper" : event.actorRole === "agency") && new Date(event.createdAt).getTime() > baseline.current!)
+        .map(event => ({ ticket, event })))
+      .sort((a, b) => new Date(a.event.createdAt).getTime() - new Date(b.event.createdAt).getTime());
+    if (fresh.length === 0) return;
+    baseline.current = Math.max(baseline.current, ...fresh.map(item => new Date(item.event.createdAt).getTime()));
+    const messages = fresh.slice(-3).map(({ ticket, event }) => {
+      const title = side === "agency"
+        ? event.action.startsWith("CS 접수")
+          ? `${ticket.shipperName}화주로부터 CS가 등록되었습니다.`
+          : event.action.startsWith("답변 등록")
+            ? `${ticket.shipperName}화주가 CS에 답변을 등록했습니다.`
+            : `${ticket.shipperName}화주에서 CS 히스토리를 업데이트했습니다.`
+        : `${agencyNameQuery.data?.agencyName || "대리점"}대리점이 CS에 대한 피드백을 등록하였습니다.`;
+      return { key: `${ticket.code}-${event.id}`, title, body: `${ticket.code} · ${event.action.slice(0, 70)}` };
+    });
+    setPopups(current => [...current, ...messages.filter(message => !current.some(item => item.key === message.key))].slice(-4));
+  }, [csList.data, userId, side, agencyNameQuery.data]);
+  useEffect(() => {
+    if (popups.length === 0) return;
+    const timer = window.setTimeout(() => setPopups(current => current.slice(1)), 9000);
+    return () => window.clearTimeout(timer);
+  }, [popups]);
+  if (!userId || popups.length === 0 || !readPopupEnabled(userId)) return null;
+  return (
+    <div className={`fixed z-[70] flex flex-col gap-2 ${popupPositionClass[readPopupPosition(userId)]}`} aria-live="polite">
+      {popups.map(popup => (
+        <div key={popup.key} className="cs-popup-card">
+          <div>
+            <p className="cs-popup-title"><Bell className="mr-1.5 inline h-3.5 w-3.5 text-[#0e9f95]" />{popup.title}</p>
+            <p className="cs-popup-body">{popup.body}</p>
+          </div>
+          <button type="button" onClick={() => setPopups(current => current.filter(item => item.key !== popup.key))} aria-label="알림 팝업 닫기"><X /></button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CsPopupSettingsCard({ side }: { side: "agency" | "shipper" }) {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const [enabled, setEnabled] = useState(true);
+  const [position, setPosition] = useState<PopupPosition>("bottom-right");
+  useEffect(() => {
+    if (!userId) return;
+    setEnabled(readPopupEnabled(userId));
+    setPosition(readPopupPosition(userId));
+  }, [userId]);
+  const save = (nextEnabled: boolean, nextPosition: PopupPosition) => {
+    if (!userId) return;
+    window.localStorage.setItem(`logiflow:popup:enabled:${userId}`, nextEnabled ? "on" : "off");
+    window.localStorage.setItem(`logiflow:popup:pos:${userId}`, nextPosition);
+  };
+  return (
+    <section className="data-card">
+      <div className="data-card-head">
+        <div><p className="panel-kicker">REALTIME ALERT</p><h2>CS 실시간 알림 팝업</h2></div>
+        <button
+          type="button"
+          className={enabled ? "policy-switch policy-switch-on" : "policy-switch"}
+          aria-label="팝업 알림 사용 여부"
+          onClick={() => { const next = !enabled; setEnabled(next); save(next, position); toast.success(next ? "CS 실시간 알림 팝업을 켰습니다." : "CS 실시간 알림 팝업을 껐습니다."); }}
+        ><i /></button>
+      </div>
+      <div className="px-4 pb-4 pt-1 sm:px-[18px] sm:pb-[18px]">
+        <p className="text-xs text-[#637287]">
+          {side === "agency"
+            ? "화주가 CS를 접수하거나 답변을 등록하면 화면 구석에 작은 팝업으로 바로 알려드립니다."
+            : "대리점이 CS에 피드백이나 답변을 등록하면 화면 구석에 작은 팝업으로 바로 알려드립니다."}
+        </p>
+        <div className="cs-popup-pos-grid mt-3">
+          {popupPositionOptions.map(option => (
+            <button key={option.id} type="button" className={position === option.id ? "cs-popup-pos-on" : "cs-popup-pos"} onClick={() => { setPosition(option.id); save(enabled, option.id); toast.success(`팝업 위치를 ${option.label}로 변경했습니다.`); }}>
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-[#8a99a5]">사용 여부와 위치는 이 브라우저에 계정별로 저장됩니다. 팝업은 9초 후 자동으로 사라집니다.</p>
+      </div>
+    </section>
   );
 }
 
@@ -1338,8 +1658,10 @@ function SimplePlaceholder({
 function AgencyConsole() {
   const [view, setView] = useState<View>("dashboard");
   const [compact, setCompact] = useState(false);
+  const [trackNumber, setTrackNumber] = useState("");
   const renderView = () => {
     if (view === "dashboard") return <OverviewView onOpenTickets={() => setView("tickets")} />;
+    if (view === "track") return <TrackView trackingNumber={trackNumber} onBack={() => setView("tickets")} />;
     if (view === "tickets") return <TicketsView />;
     if (view === "risk") return <RiskView />;
     if (view === "sla") return <SLAView />;
@@ -1355,8 +1677,10 @@ function AgencyConsole() {
         <AgencyHeader
           compact={compact}
           setCompact={setCompact}
+          onOpenTrack={value => { setTrackNumber(value); setView("track"); }}
         />
         {renderView()}
+        <CsPopupWatcher side="agency" />
       </div>
     </main>
   );
@@ -2274,6 +2598,7 @@ function FontScaleSettings() {
 function ShipperSettingsView({ isOwner = true }: { isOwner?: boolean }) {
   return (
     <div className="page-enter mt-5 grid gap-4">
+      <CsPopupSettingsCard side="shipper" />
       <FontScaleSettings />
       <SessionSecurityCard />
       {isOwner && <StaffManagementCard />}
@@ -2429,7 +2754,7 @@ function HomeInner() {
   if (!isAuthenticated) return <main className="console-access-gate"><div><LockKeyhole /><p className="eyebrow">SIGN IN REQUIRED</p><h1>로그인 후 업무 공간을 열 수 있습니다.</h1><span>대리점 운영자 또는 화주 담당자의 개인 계정으로 접속해 주세요.</span><Button onClick={() => window.location.assign("/login?returnTo=/console")} className="mt-5 bg-[#0e9f95] hover:bg-[#0b887f]">로그인하기 <ArrowRight /></Button></div></main>;
   if (profile.isError || !profile.data?.organizationType) return <main className="console-access-gate"><div><AlertTriangle /><p className="eyebrow">ROLE NOT ASSIGNED</p><h1>조직 역할을 확인할 수 없습니다.</h1><span>계정 활성화가 완료되지 않았거나 이 업무 공간에 접근할 권한이 없습니다. 초대를 보낸 운영자에게 문의해 주세요.</span><Button onClick={() => window.location.assign("/login")} variant="outline" className="mt-5">로그인 화면으로</Button></div></main>;
   const role: Role = profile.data.organizationType;
-  return role === "agency" ? <AgencyConsole /> : <ShipperPortal organizationName={profile.data.organizationName ?? "화주"} accountRole={profile.data.accountRole ?? null} />;
+  return role === "agency" ? <AgencyConsole /> : <><CsPopupWatcher side="shipper" /><ShipperPortal organizationName={profile.data.organizationName ?? "화주"} accountRole={profile.data.accountRole ?? null} /></>;
 }
 
 type Permission = "전체 관리" | "티켓 관리" | "보상 검토" | "화주 관리" | "보고서 열람" | "설정 관리";
@@ -2599,7 +2924,7 @@ function SettingsView() {
   const updateCourier = trpc.auth.updateCourier.useMutation({ onSuccess: () => toast.success("본사 택배사를 저장했습니다. 이후 가입 화주와 송장 조회에 적용됩니다."), onError: error => toast.error(error.message) });
   const [members, setMembers] = useState(permissionRows);
   const togglePermission = (person: string, permission: Permission) => setMembers(current => current.map(member => member.name !== person ? member : { ...member, permissions: member.permissions.includes(permission) ? member.permissions.filter(item => item !== permission) : [...member.permissions, permission] }));
-  return <div className="management-page settings-page page-enter"><div className="management-title"><div><p className="eyebrow">AGENCY ADMINISTRATION · ACCESS CONTROL</p><h1>대리점 설정</h1><p>조직 정보, 화주 연결, 담당자 권한, 문서 자동화 정책을 설정합니다.</p></div><Button variant="outline" onClick={() => { if (!courierDraft) return toast.error("본사 택배사를 선택해 주세요."); updateCourier.mutate({ courier: courierDraft }); }}><Check />변경 사항 저장</Button></div><div className="settings-layout"><nav className="settings-nav">{([{ id: "agency", icon: Settings, label: "대리점 기본 설정" }, { id: "members", icon: UserCog, label: "조직 및 담당자 권한" }, { id: "shipper", icon: Building2, label: "화주 조직 관리" }, { id: "documents", icon: FilePenLine, label: "문서·직인 정책" }, { id: "display", icon: SlidersHorizontal, label: "화면·세션 설정" }] as const).map(item => <button key={item.id} onClick={() => setTab(item.id)} className={tab === item.id ? "settings-active" : ""}><item.icon />{item.label}<ChevronDown /></button>)}</nav><section className="settings-content">{tab === "agency" && <><div className="settings-heading"><Settings /><div><h2>대리점 기본 정보</h2><p>화주에게 표시되는 운영 주체와 기본 공지 정보를 관리합니다.</p></div></div><div className="settings-form-grid"><label>대리점명 <Input defaultValue={settingsProfile.data?.organizationName || ""} /></label><label>본사 택배사(계약 택배사) <select value={courierDraft} onChange={event => setCourierDraft(event.target.value)}><option value="">택배사 선택</option>{COURIERS.map(item => <option key={item} value={item}>{item}</option>)}</select></label><label>대표 운영 이메일 <Input defaultValue="operation@seoulcentral.co.kr" /></label><label>대표 연락처 <Input defaultValue="02-3278-2100" /></label><label>CS 응답 기준 <select defaultValue="30"><option value="30">30분 이내</option><option value="60">1시간 이내</option><option value="120">2시간 이내</option></select></label></div><div className="settings-notice"><Bell /><div><strong>화주 공지 발송 권한</strong><span>운영 리더와 초대 권한 보유자만 발송 최종 확인 화면을 진행할 수 있습니다.</span></div><BadgeCheck /></div></>}{tab === "members" && <><div className="settings-heading"><UserCog /><div><h2>대리점·화주 담당자 권한</h2><p>조직별로 여러 담당자를 등록하고, 업무 범위에 맞는 최소 권한을 부여합니다.</p></div><div className="ml-auto flex gap-2"><Button variant="outline" onClick={() => window.location.assign("/staff-invite?role=shipper")}>화주 담당자 초대</Button><Button onClick={() => window.location.assign(`/staff-invite?role=agency&organization=${encodeURIComponent(settingsProfile.data?.organizationName || "")}`)} className="bg-[#0e9f95] hover:bg-[#0b887f]"><Plus />대리점 담당자 추가</Button></div></div><div className="permission-table">{members.map(member => <article key={`${member.organization}-${member.name}`}><div className="permission-person"><span>{member.initial}</span><div><strong>{member.name}</strong><small>{member.role} · {member.organization}</small></div></div><div className="permission-chips">{(["전체 관리", "티켓 관리", "보상 검토", "화주 관리", "보고서 열람", "설정 관리"] as Permission[]).map(permission => <button key={permission} className={member.permissions.includes(permission) ? "permission-on" : ""} onClick={() => { togglePermission(member.name, permission); toast(`${member.name}의 ${permission} 권한을 변경했습니다.`); }}><Check />{permission}</button>)}</div><button className="more-member" onClick={() => toast(`${member.name}의 상세 권한 설정을 엽니다.`)}><MoreHorizontal /></button></article>)}</div></>}{tab === "shipper" && <><div className="settings-heading"><Building2 /><div><h2>화주 조직 연결 관리</h2><p>초대 링크로 가입한 화주의 소속과 담당자 수신 정책을 관리합니다.</p></div></div><div className="org-directory empty-state"><Building2 /><h2>연결된 화주 조직이 없습니다.</h2><p>화주가 초대 링크로 가입하면 이곳에 소속과 담당자 수신 정책이 표시됩니다.</p></div></>}{tab === "documents" && <><div className="settings-heading"><FilePenLine /><div><h2>문서 및 직인 사용 정책</h2><p>보상 합의서 등 지정 문서에 적용할 화주 등록 직인과 기록 방식을 관리합니다.</p></div></div><div className="document-policy"><section><div className="policy-icon"><Stamp /></div><div><strong>화주 등록 직인 사용</strong><small>보상 합의서 미리보기에서 자동 적용을 허용합니다.</small></div><button className="policy-switch policy-switch-on" onClick={() => toast("직인 자동 적용 정책은 현재 활성 상태입니다.")}><i /></button></section><section><div className="policy-icon"><History /></div><div><strong>직인 사용 이력 기록</strong><small>문서 생성, 직인 적용, 다운로드 기록을 보관합니다.</small></div><button className="policy-switch policy-switch-on" onClick={() => toast("문서 이력 기록은 현재 활성 상태입니다.")}><i /></button></section><section><div className="policy-icon"><KeyRound /></div><div><strong>직인 적용 권한</strong><small>사고 보상 담당 및 대리점 운영 리더만 실행할 수 있습니다.</small></div><button onClick={() => toast("직인 적용 권한 설정을 엽니다.")} className="policy-link">권한 보기 <ArrowDownRight /></button></section></div><div className="policy-alert"><LockKeyhole /><p><strong>직인은 민감 문서 자산으로 관리됩니다.</strong><span>이 화면의 자동 날인은 내부 운영 미리보기이며, 실제 문서 발행·보관 환경에서는 조직별 접근 제어와 저장 정책을 적용해야 합니다.</span></p></div></>}{tab === "display" && (<div className="grid gap-4"><FontScaleSettings /><SessionSecurityCard /></div>)}</section></div></div>;
+  return <div className="management-page settings-page page-enter"><div className="management-title"><div><p className="eyebrow">AGENCY ADMINISTRATION · ACCESS CONTROL</p><h1>대리점 설정</h1><p>조직 정보, 화주 연결, 담당자 권한, 문서 자동화 정책을 설정합니다.</p></div><Button variant="outline" onClick={() => { if (!courierDraft) return toast.error("본사 택배사를 선택해 주세요."); updateCourier.mutate({ courier: courierDraft }); }}><Check />변경 사항 저장</Button></div><div className="settings-layout"><nav className="settings-nav">{([{ id: "agency", icon: Settings, label: "대리점 기본 설정" }, { id: "members", icon: UserCog, label: "조직 및 담당자 권한" }, { id: "shipper", icon: Building2, label: "화주 조직 관리" }, { id: "documents", icon: FilePenLine, label: "문서·직인 정책" }, { id: "display", icon: SlidersHorizontal, label: "화면·세션 설정" }] as const).map(item => <button key={item.id} onClick={() => setTab(item.id)} className={tab === item.id ? "settings-active" : ""}><item.icon />{item.label}<ChevronDown /></button>)}</nav><section className="settings-content">{tab === "agency" && <><div className="settings-heading"><Settings /><div><h2>대리점 기본 정보</h2><p>화주에게 표시되는 운영 주체와 기본 공지 정보를 관리합니다.</p></div></div><div className="settings-form-grid"><label>대리점명 <Input defaultValue={settingsProfile.data?.organizationName || ""} /></label><label>본사 택배사(계약 택배사) <select value={courierDraft} onChange={event => setCourierDraft(event.target.value)}><option value="">택배사 선택</option>{COURIERS.map(item => <option key={item} value={item}>{item}</option>)}</select></label><label>대표 운영 이메일 <Input defaultValue="operation@seoulcentral.co.kr" /></label><label>대표 연락처 <Input defaultValue="02-3278-2100" /></label><label>CS 응답 기준 <select defaultValue="30"><option value="30">30분 이내</option><option value="60">1시간 이내</option><option value="120">2시간 이내</option></select></label></div><div className="settings-notice"><Bell /><div><strong>화주 공지 발송 권한</strong><span>운영 리더와 초대 권한 보유자만 발송 최종 확인 화면을 진행할 수 있습니다.</span></div><BadgeCheck /></div></>}{tab === "members" && <><div className="settings-heading"><UserCog /><div><h2>대리점·화주 담당자 권한</h2><p>조직별로 여러 담당자를 등록하고, 업무 범위에 맞는 최소 권한을 부여합니다.</p></div><div className="ml-auto flex gap-2"><Button variant="outline" onClick={() => window.location.assign("/staff-invite?role=shipper")}>화주 담당자 초대</Button><Button onClick={() => window.location.assign(`/staff-invite?role=agency&organization=${encodeURIComponent(settingsProfile.data?.organizationName || "")}`)} className="bg-[#0e9f95] hover:bg-[#0b887f]"><Plus />대리점 담당자 추가</Button></div></div><div className="permission-table">{members.map(member => <article key={`${member.organization}-${member.name}`}><div className="permission-person"><span>{member.initial}</span><div><strong>{member.name}</strong><small>{member.role} · {member.organization}</small></div></div><div className="permission-chips">{(["전체 관리", "티켓 관리", "보상 검토", "화주 관리", "보고서 열람", "설정 관리"] as Permission[]).map(permission => <button key={permission} className={member.permissions.includes(permission) ? "permission-on" : ""} onClick={() => { togglePermission(member.name, permission); toast(`${member.name}의 ${permission} 권한을 변경했습니다.`); }}><Check />{permission}</button>)}</div><button className="more-member" onClick={() => toast(`${member.name}의 상세 권한 설정을 엽니다.`)}><MoreHorizontal /></button></article>)}</div></>}{tab === "shipper" && <><div className="settings-heading"><Building2 /><div><h2>화주 조직 연결 관리</h2><p>초대 링크로 가입한 화주의 소속과 담당자 수신 정책을 관리합니다.</p></div></div><div className="org-directory empty-state"><Building2 /><h2>연결된 화주 조직이 없습니다.</h2><p>화주가 초대 링크로 가입하면 이곳에 소속과 담당자 수신 정책이 표시됩니다.</p></div></>}{tab === "documents" && <><div className="settings-heading"><FilePenLine /><div><h2>문서 및 직인 사용 정책</h2><p>보상 합의서 등 지정 문서에 적용할 화주 등록 직인과 기록 방식을 관리합니다.</p></div></div><div className="document-policy"><section><div className="policy-icon"><Stamp /></div><div><strong>화주 등록 직인 사용</strong><small>보상 합의서 미리보기에서 자동 적용을 허용합니다.</small></div><button className="policy-switch policy-switch-on" onClick={() => toast("직인 자동 적용 정책은 현재 활성 상태입니다.")}><i /></button></section><section><div className="policy-icon"><History /></div><div><strong>직인 사용 이력 기록</strong><small>문서 생성, 직인 적용, 다운로드 기록을 보관합니다.</small></div><button className="policy-switch policy-switch-on" onClick={() => toast("문서 이력 기록은 현재 활성 상태입니다.")}><i /></button></section><section><div className="policy-icon"><KeyRound /></div><div><strong>직인 적용 권한</strong><small>사고 보상 담당 및 대리점 운영 리더만 실행할 수 있습니다.</small></div><button onClick={() => toast("직인 적용 권한 설정을 엽니다.")} className="policy-link">권한 보기 <ArrowDownRight /></button></section></div><div className="policy-alert"><LockKeyhole /><p><strong>직인은 민감 문서 자산으로 관리됩니다.</strong><span>이 화면의 자동 날인은 내부 운영 미리보기이며, 실제 문서 발행·보관 환경에서는 조직별 접근 제어와 저장 정책을 적용해야 합니다.</span></p></div></>}{tab === "display" && (<div className="grid gap-4"><CsPopupSettingsCard side="agency" /><FontScaleSettings /><SessionSecurityCard /></div>)}</section></div></div>;
 }
 
 

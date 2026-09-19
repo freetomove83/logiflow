@@ -271,3 +271,47 @@ body { zoom: var(--app-zoom); }
 
 /* Ticket follower chip */
 .cs-follow-chip { display: inline-flex; align-items: center; border-radius: 999px; background: #e7f6f2; border: 1px solid #cbe9e3; color: #0b7d72; font-size: 11px; font-weight: 700; padding: 4px 10px; white-space: nowrap; }
+
+/* Global search panel */
+.search-backdrop { position: fixed; inset: 0; z-index: 40; }
+.global-search-panel { position: absolute; top: 44px; left: 0; right: 0; z-index: 50; display: grid; gap: 4px; border: 1px solid #e2e9e3; border-radius: 10px; background: #ffffff; padding: 8px; box-shadow: 0 14px 34px rgba(40, 58, 80, .16); max-height: 420px; overflow-y: auto; }
+.global-search-row { display: grid; gap: 2px; border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; text-align: left; cursor: pointer; }
+.global-search-row:hover { background: #f3f8f6; border-color: #d8e7e2; }
+.global-search-main { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #2c4357; }
+.global-search-sub { font-size: 11px; color: #7d8f9d; }
+.global-search-empty { padding: 10px; font-size: 11.5px; color: #8a99a5; }
+
+/* Notification bell layer */
+.notify-layer { position: fixed; right: 16px; top: 78px; z-index: 50; width: 340px; max-height: 460px; overflow-y: auto; border: 1px solid #e2e9e3; border-radius: 12px; background: #fffefb; box-shadow: 0 18px 40px rgba(40, 58, 80, .2); padding: 12px 14px; }
+.notify-layer header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.notify-layer header h2 { font-size: 14px; font-weight: 800; color: #25364b; margin: 0; }
+.notify-layer .panel-kicker { font-size: 9px; font-weight: 800; letter-spacing: .08em; color: #8a99a5; margin: 0 0 2px; }
+.notify-layer ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.notify-layer li { display: flex; gap: 8px; align-items: flex-start; border: 1px solid #edf1ec; border-radius: 8px; padding: 8px 10px; background: #ffffff; }
+.notify-layer li p { margin: 0; font-size: 11.5px; color: #33475a; line-height: 1.45; }
+.notify-layer li small { display: block; margin-top: 2px; font-size: 10px; color: #8a99a5; }
+.notify-empty { padding: 14px 4px; font-size: 11.5px; color: #8a99a5; margin: 0; }
+.notify-x { border-radius: 6px; padding: 4px; color: #8794a6; cursor: pointer; }
+.notify-x:hover { background: #f1f4f1; color: #435267; }
+.cs-history-dot.muted { background: #c7d2cc; }
+
+/* Inquiry & reply thread */
+.cs-reply-thread { display: grid; gap: 8px; margin-top: 6px; }
+.cs-thread-bubble { border-radius: 10px; padding: 8px 11px; max-width: 92%; }
+.cs-thread-bubble.shipper { background: #f2f6ff; border: 1px solid #dce2fb; }
+.cs-thread-bubble.agency { background: #eaf6f4; border: 1px solid #cbe9e3; margin-left: auto; }
+.cs-thread-bubble small { display: block; font-size: 9.5px; font-weight: 800; color: #7d8f9d; }
+.cs-thread-bubble p { margin: 3px 0 0; font-size: 11.5px; color: #33475a; white-space: pre-wrap; }
+.cs-thread-form { display: flex; gap: 6px; }
+.cs-thread-form input { flex: 1; border: 1px solid #dbe4de; border-radius: 8px; padding: 8px 10px; font-size: 12px; background: #ffffff; }
+.cs-thread-form input:focus { outline: 2px solid rgba(14, 159, 149, .25); outline-offset: -1px; }
+
+/* Realtime CS popup layer */
+.cs-popup-card { display: flex; align-items: flex-start; gap: 10px; width: 300px; border: 1px solid #cbe9e3; border-radius: 10px; background: #ffffff; box-shadow: 0 14px 34px rgba(40, 58, 80, .22); padding: 10px 12px; }
+.cs-popup-title { margin: 0; font-size: 11.5px; font-weight: 800; color: #25364b; line-height: 1.4; }
+.cs-popup-body { margin: 3px 0 0; font-size: 10.5px; color: #7d8f9d; word-break: break-all; }
+.cs-popup-card > button { color: #8794a6; padding: 2px; cursor: pointer; }
+.cs-popup-card > button:hover { color: #435267; }
+.cs-popup-pos-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-width: 320px; }
+.cs-popup-pos, .cs-popup-pos-on { border-radius: 8px; border: 1px solid #dbe4de; background: #ffffff; padding: 8px 10px; font-size: 11.5px; font-weight: 700; color: #4a5c6e; cursor: pointer; }
+.cs-popup-pos-on { background: #0e9f95; border-color: #0e9f95; color: #ffffff; }

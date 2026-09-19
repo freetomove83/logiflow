@@ -42,6 +42,7 @@ export const credentialAccounts = pgTable("credential_accounts", {
   passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),  courier: varchar("courier", { length: 40 }),
+  businessAddress: varchar("businessAddress", { length: 255 }).default("").notNull(),
 
 });
 

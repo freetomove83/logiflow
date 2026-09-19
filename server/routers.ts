@@ -90,6 +90,7 @@ export const appRouter = router({
       loginId: z.string().trim().toLowerCase().regex(/^[a-z0-9._-]{6,48}$/, "아이디는 영문 소문자, 숫자, ., _, - 6~48자로 입력해 주세요."),
       password: z.string().min(10, "비밀번호는 10자 이상으로 설정해 주세요.").max(128),
       contacts: z.array(z.object({ name: z.string().trim().min(1).max(100), department: z.string().trim().max(100).default(""), phone: z.string().trim().max(40).default("") })).max(10).optional(),
+      businessAddress: z.string().trim().max(255).optional(),
       inviteToken: z.string().trim().min(8).max(80).optional(),
       staffInviteToken: z.string().trim().min(8).max(80).optional(),
       courier: z.string().trim().min(1).max(40).optional(),
@@ -135,6 +136,7 @@ export const appRouter = router({
           organizationType: input.organizationType,
           accountRole,
           businessNumber: input.businessNumber,
+          businessAddress: input.businessAddress ?? "",
           organizationName: input.organizationName,
           contactName: input.contactName,
           loginId: input.loginId,
@@ -354,9 +356,10 @@ export const appRouter = router({
         const contactRows = owner ? await getShipperContactsByUserId(owner.userId) : [];
         return {
           token: invite.token,
-          businessNumber: invite.businessNumber,
+          businessNumber: owner?.businessNumber || invite.businessNumber || null,
           name: invite.shipperName,
           contractNumber: invite.contractNumber,
+          businessAddress: owner?.businessAddress || null,
           inviteStatus: invite.status,
           invitedAt: invite.createdAt,
           expiresAt: invite.expiresAt,

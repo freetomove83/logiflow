@@ -417,6 +417,7 @@ export const appRouter = router({
         const sealEvents = owner ? await getDocumentSealEventsByShipperUserId(owner.userId) : [];
         const downloadEvents = owner ? await getDocumentDownloadEventsByShipperUserId(owner.userId) : [];
         const contactRows = owner ? await getShipperContactsByUserId(owner.userId) : [];
+        const staffAccounts = owner ? (await getCredentialAccountsByOrganization("shipper", owner.organizationName, owner.businessNumber)).filter(account => account.accountRole === "member") : [];
         return {
           token: invite.token,
           businessNumber: owner?.businessNumber || invite.businessNumber || null,
@@ -428,8 +429,11 @@ export const appRouter = router({
           invitedAt: invite.createdAt,
           expiresAt: invite.expiresAt,
           claimedAt: invite.claimedAt,
-          contactCount: contactRows.length,
-          contacts: contactRows.map(contact => ({ name: contact.name, department: contact.department, phone: contact.phone })),
+          contactCount: contactRows.length + staffAccounts.length,
+          contacts: [
+            ...contactRows.map(contact => ({ name: contact.name, department: contact.department, phone: contact.phone })),
+            ...staffAccounts.map(member => ({ name: member.contactName, department: "직원", phone: contactRows[0]?.phone ?? null })),
+          ],
           ownerUserId: owner?.userId ?? null,
           settlement: settlement ? { bank: settlement.bank, accountLast4: settlement.accountLast4, status: settlement.status, updatedAt: settlement.updatedAt } : null,
           sealEvents: sealEvents.map(event => ({ documentRef: event.documentRef, eventType: event.eventType, createdAt: event.createdAt })),

@@ -88,7 +88,7 @@ const applyFontScale = (value: number) => {
 
 const fontPresets: Array<[number, string]> = [[0.9, "작게"], [1, "기본"], [1.1, "크게"], [1.25, "더 크게"], [1.4, "최대"]];
 
-type View = "tickets" | "risk" | "sla" | "shippers" | "history" | "reports" | "settings";
+type View = "dashboard" | "tickets" | "risk" | "sla" | "shippers" | "history" | "reports" | "settings";
 
 type TicketType = "파손/분실" | "배송지연" | "오배송" | "주소변경" | "미수령 확인요청" | "배송문의" | "기타";
 type TicketStatus = "접수" | "확인 중" | "보상 접수 요청" | "보상 검토" | "보상 확정" | "처리 완료";
@@ -700,8 +700,8 @@ function AgencySidebar({
           {compact ? "" : "OPERATIONS"}
         </p>
         <button
-          className={`sidebar-item ${view === "tickets" ? "sidebar-item-active" : ""}`}
-          onClick={() => setView("tickets")}
+          className={`sidebar-item ${view === "dashboard" ? "sidebar-item-active" : ""}`}
+          onClick={() => setView("dashboard")}
           title="전체 대시보드"
         >
           <LayoutDashboard /> {!compact && <span>전체 대시보드</span>}
@@ -884,6 +884,128 @@ function CsDetailModal({ ticket, onClose, hideBulk }: { ticket: CsTicket; onClos
           <CsTicketHistory ticket={ticket} hideBulk={hideBulk} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function OverviewView({ onOpenTickets }: { onOpenTickets: () => void }) {
+  const csList = trpc.cs.list.useQuery(undefined, { retry: false });
+  const history = trpc.operations.agencyShipperHistory.useQuery(undefined, { retry: false });
+  const rows = csList.data ?? [];
+  const claimedShippers = (history.data ?? []).filter(item => item.inviteStatus === "claimed" && item.ownerUserId);
+  const todayKey = new Date().toDateString();
+  const todayCount = rows.filter(ticket => new Date(ticket.createdAt).toDateString() === todayKey).length;
+  const activeRows = rows.filter(ticket => ticket.status !== "처리 완료");
+  const issueRows = rows.filter(ticket => ticket.isIssue && ticket.status !== "처리 완료");
+  const doneRows = rows.filter(ticket => ticket.status === "처리 완료");
+  const doneRate = rows.length ? Math.round((doneRows.length / rows.length) * 100) : 0;
+  const statusGroups = [
+    { label: "접수", count: rows.filter(ticket => ticket.status === "접수").length, tone: "#5264a7" },
+    { label: "확인 중", count: rows.filter(ticket => ticket.status === "확인 중").length, tone: "#0b7d72" },
+    { label: "보상 단계", count: rows.filter(ticket => ticket.status === "보상 접수 요청" || ticket.status === "보상 검토" || ticket.status === "보상 확정").length, tone: "#a16b07" },
+    { label: "처리 완료", count: doneRows.length, tone: "#5d7264" },
+  ];
+  const typeRows = ticketTypeOptions.map(type => ({ type, count: rows.filter(ticket => ticket.type === type).length })).filter(row => row.count > 0).sort((a, b) => b.count - a.count);
+  const trend = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date();
+    day.setHours(0, 0, 0, 0);
+    day.setDate(day.getDate() - (6 - index));
+    return { label: `${day.getMonth() + 1}/${day.getDate()}`, count: rows.filter(ticket => new Date(ticket.createdAt).toDateString() === day.toDateString()).length };
+  });
+  const trendMax = Math.max(1, ...trend.map(day => day.count));
+  const perShipper = claimedShippers.map(item => {
+    const list = rows.filter(ticket => ticket.shipperUserId === item.ownerUserId);
+    return {
+      key: item.token,
+      name: item.name,
+      active: list.filter(ticket => ticket.status !== "처리 완료").length,
+      issue: list.filter(ticket => ticket.isIssue && ticket.status !== "처리 완료").length,
+      done: list.filter(ticket => ticket.status === "처리 완료").length,
+      last: list.length ? new Date(list[0].createdAt).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" }) : "-",
+    };
+  }).sort((a, b) => b.active - a.active || b.issue - a.issue || a.name.localeCompare(b.name));
+  return (
+    <div className="page-enter flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
+      <div className="content-title-row">
+        <div>
+          <p className="eyebrow">OVERVIEW · LIVE DATA</p>
+          <h1>전체 대시보드</h1>
+          <p className="subtitle">전체 화주와 CS 처리 현황을 한 곳에서 요약해 보여줍니다.</p>
+        </div>
+        <Button variant="outline" onClick={onOpenTickets}><Inbox className="mr-1.5 h-4 w-4" />CS 티켓 관리 바로가기</Button>
+      </div>
+      <div className="cs-stat-grid">
+        <div className="cs-stat navy"><p>연결 화주</p><strong>{claimedShippers.length}<span>개사</span></strong><small>가입 완료 화주 기준</small></div>
+        <div className="cs-stat mint"><p>금일 접수 CS</p><strong>{todayCount}<span>건</span></strong><small>전체 화주 접수 기준 · 실시간</small></div>
+        <div className="cs-stat orange"><p>진행 중 CS</p><strong>{activeRows.length}<span>건</span></strong><small>이슈건 {issueRows.length}건 포함</small></div>
+        <div className="cs-stat steel"><p>처리 완료</p><strong>{doneRows.length}<span>건</span></strong><small>누적 처리율 {doneRate}%</small></div>
+      </div>
+      {csList.isLoading || history.isLoading ? <p className="mt-5 text-center text-sm text-[#637287]">전체 현황을 불러오는 중입니다.</p> : (
+        <>
+          <div className="mt-5 grid gap-5 lg:grid-cols-2">
+            <section className="data-card">
+              <div className="data-card-head"><div><p className="panel-kicker">STATUS BREAKDOWN</p><h2>상태별 분포</h2></div><Badge className="bg-[#edf7f5] text-[#197a70]">전체 {rows.length}건</Badge></div>
+              <div className="grid gap-2.5 px-4 pb-4 pt-1 sm:px-[18px] sm:pb-[18px]">
+                {statusGroups.map(group => (
+                  <div key={group.label} className="flex items-center gap-3">
+                    <span className="w-[76px] shrink-0 text-xs font-bold text-[#4a5c6e]">{group.label}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#eef2f0]"><div className="h-full rounded-full" style={{ width: `${rows.length ? Math.round((group.count / rows.length) * 100) : 0}%`, background: group.tone }} /></div>
+                    <span className="w-12 shrink-0 text-right text-xs font-bold text-[#4a5c6e]">{group.count}건</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+            <section className="data-card">
+              <div className="data-card-head"><div><p className="panel-kicker">TYPE SHARE</p><h2>유형별 접수 비중</h2></div><Badge className="bg-[#edf7f5] text-[#197a70]">전체 화주 누적</Badge></div>
+              <div className="grid gap-2.5 px-4 pb-4 pt-1 sm:px-[18px] sm:pb-[18px]">
+                {typeRows.length === 0 ? <p className="py-6 text-center text-xs text-[#8a99a5]">아직 접수된 CS가 없습니다.</p> : typeRows.map(row => (
+                  <div key={row.type} className="flex items-center gap-3">
+                    <span className="w-[120px] shrink-0"><TicketTag type={row.type} /></span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#eef2f0]"><div className="h-full rounded-full bg-[#0e9f95]" style={{ width: `${Math.round((row.count / rows.length) * 100)}%` }} /></div>
+                    <span className="w-12 shrink-0 text-right text-xs font-bold text-[#4a5c6e]">{row.count}건</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+          <div className="mt-5 grid gap-5 lg:grid-cols-3">
+            <section className="data-card lg:col-span-2">
+              <div className="data-card-head"><div><p className="panel-kicker">SHIPPER CS STATUS</p><h2>화주별 CS 현황</h2></div><Badge className="bg-[#edf7f5] text-[#197a70]">가입 화주 {claimedShippers.length}개사</Badge></div>
+              <div className="px-4 pb-4 pt-1 sm:px-[18px] sm:pb-[18px]">
+                {perShipper.length === 0 ? <p className="py-6 text-center text-xs text-[#8a99a5]">아직 가입 완료된 화주가 없습니다.</p> : (
+                  <div className="grid gap-1.5">
+                    <div className="grid grid-cols-[minmax(0,1fr)_56px_56px_56px_72px] gap-2 border-b border-[#e6ece9] pb-1.5 text-[10px] font-bold text-[#8a99a5]"><span>화주명</span><span className="text-center">진행</span><span className="text-center">이슈</span><span className="text-center">완료</span><span className="text-right">최근 접수</span></div>
+                    {perShipper.map(row => (
+                      <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_56px_56px_56px_72px] items-center gap-2 border-b border-[#f0f4f0] py-2 text-xs last:border-0">
+                        <strong className="truncate text-[#2c4357]">{row.name}</strong>
+                        <span className="text-center font-bold text-[#33527a]">{row.active}건</span>
+                        <span className={`text-center font-bold ${row.issue > 0 ? "text-[#b04a4a]" : "text-[#8a99a5]"}`}>{row.issue}건</span>
+                        <span className="text-center font-bold text-[#5d7264]">{row.done}건</span>
+                        <span className="text-right text-[#8a99a5]">{row.last}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+            <section className="data-card">
+              <div className="data-card-head"><div><p className="panel-kicker">7-DAY TREND</p><h2>최근 7일 접수 추이</h2></div><Badge className="bg-[#edf7f5] text-[#197a70]">일별 접수</Badge></div>
+              <div className="px-4 pb-4 pt-1 sm:px-[18px] sm:pb-[18px]">
+                <div className="flex h-[150px] items-stretch justify-between gap-2">
+                  {trend.map(day => (
+                    <div key={day.label} className="flex flex-1 flex-col items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-[#4a5c6e]">{day.count}</span>
+                      <div className="flex h-full w-full items-end"><div className="w-full rounded-t-md bg-[#0e9f95]" style={{ height: `${Math.max(3, Math.round((day.count / trendMax) * 100))}%` }} /></div>
+                      <span className="text-[9px] font-bold text-[#8a99a5]">{day.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-[10px] text-[#8a99a5]">이슈건 {issueRows.length}건은 CS 티켓 관리에서 우선 처리하세요.</p>
+              </div>
+            </section>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1214,9 +1336,10 @@ function SimplePlaceholder({
 }
 
 function AgencyConsole() {
-  const [view, setView] = useState<View>("tickets");
+  const [view, setView] = useState<View>("dashboard");
   const [compact, setCompact] = useState(false);
   const renderView = () => {
+    if (view === "dashboard") return <OverviewView onOpenTickets={() => setView("tickets")} />;
     if (view === "tickets") return <TicketsView />;
     if (view === "risk") return <RiskView />;
     if (view === "sla") return <SLAView />;
@@ -1266,7 +1389,7 @@ function ShipperIssueSummary({ tickets }: { tickets: CsTicket[] }) {
         </div>
         <Badge className="bg-[#edf7f5] text-[#197a70]">실시간 조회</Badge>
       </div>
-      <div className="cs-stat-grid mt-5">
+      <div className="px-4 pb-4 pt-1 sm:px-[18px] sm:pb-[18px]"><div className="cs-stat-grid mt-5">
         <div className="cs-stat navy"><p>전체 접수</p><strong>{total}<span>건</span></strong><small>누적 기준</small></div>
         <div className="cs-stat mint"><p>진행 중</p><strong>{activeCount}<span>건</span></strong><small>접수·확인 중·보상 단계</small></div>
         <div className="cs-stat orange"><p>이슈건</p><strong>{issueCount}<span>건</span></strong><small>우선 확인이 필요한 건</small></div>
@@ -1296,6 +1419,7 @@ function ShipperIssueSummary({ tickets }: { tickets: CsTicket[] }) {
             ))}
           </div>
         </div>
+      </div>
       </div>
     </section>
   );

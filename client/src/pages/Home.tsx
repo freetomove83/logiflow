@@ -24,7 +24,6 @@ import {
   Eye,
   ExternalLink,
   Filter,
-  FileSpreadsheet,
   FilePenLine,
   FileText,
   BellRing,
@@ -75,6 +74,7 @@ import { downloadAgreementPdf } from "@/lib/documentPdf";
 import { toast } from "sonner";
 
 type Role = "agency" | "shipper";
+const SHOW_RISK_MENUS = false; // phase-1: 배송지연 리스크 메뉴 숨김(영역·코드는 유지, 플래그만 복구)
 const FONT_SCALE_KEY = "logiflowFontScale";
 const applyFontScale = (value: number) => {
   document.documentElement.style.setProperty("--app-zoom", String(value));
@@ -110,6 +110,8 @@ type CsTicket = {
   createdByRole: "shipper" | "agency";
   shipperUserId: number;
   agencyUserId: number;
+  followedByUserId: number | null;
+  followedByName: string | null;
   createdAt: Date | string;
   updatedAt: Date | string;
   evidence: { category: EvidenceCategory; fileName: string; url: string; createdAt: Date | string }[];
@@ -704,7 +706,7 @@ function AgencySidebar({
         >
           <LayoutDashboard /> {!compact && <span>전체 대시보드</span>}
         </button>
-        {navItems.map(({ id, label, icon: Icon }) => (
+        {navItems.filter(item => SHOW_RISK_MENUS || item.id !== "risk").map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             className={`sidebar-item ${view === id ? "sidebar-item-active" : ""}`}
@@ -888,6 +890,7 @@ function CsDetailModal({ ticket, onClose, hideBulk }: { ticket: CsTicket; onClos
 
 function TicketsView() {
   const utils = trpc.useUtils();
+  const { user: authUser } = useAuth();
   const csList = trpc.cs.list.useQuery(undefined, { retry: false });
   const history = trpc.operations.agencyShipperHistory.useQuery(undefined, { retry: false });
   const csUpdate = trpc.cs.agencyUpdate.useMutation({
@@ -911,6 +914,20 @@ function TicketsView() {
     },
     onError: error => toast.error(error.message),
   });
+  const csReply = trpc.cs.reply.useMutation({
+    onSuccess: async () => {
+      await utils.cs.list.invalidate();
+      toast.success("답변을 등록했습니다. 화주 포털 히스토리에 기록됩니다.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const csFollow = trpc.cs.follow.useMutation({
+    onSuccess: async (_data, variables) => {
+      await utils.cs.list.invalidate();
+      toast.success(variables.follow ? "이 티켓의 담당으로 팔로잉했습니다." : "팔로잉을 해제했습니다.");
+    },
+    onError: error => toast.error(error.message),
+  });
   const rows = csList.data ?? [];
   const todayKey = new Date().toDateString();
   const todayCount = rows.filter(ticket => new Date(ticket.createdAt).toDateString() === todayKey).length;
@@ -931,6 +948,8 @@ function TicketsView() {
   const [detailCode, setDetailCode] = useState<string | null>(null);
   const detailTicket = detailCode ? rows.find(ticket => ticket.code === detailCode) ?? null : null;
   const [issueEditText, setIssueEditText] = useState("");
+  const [replyTarget, setReplyTarget] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
   const toggleSelect = (code: string) => setSelectedCodes(current => current.includes(code) ? current.filter(item => item !== code) : [...current, code]);
   return (
     <div className="page-enter flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
@@ -1005,6 +1024,17 @@ function TicketsView() {
                     )}
                   </div>
                   <div className="cs-ticket-actions" onDoubleClick={event => event.stopPropagation()}>
+                    {ticket.followedByUserId ? <span className="cs-follow-chip">담당 · {ticket.followedByName ?? "팔로잉 중"}</span> : null}
+                    <button className="cs-action" onClick={() => csFollow.mutate({ ticketCode: ticket.code, follow: ticket.followedByUserId !== authUser?.id })}>{ticket.followedByUserId === authUser?.id ? "팔로잉 해제" : "팔로잉"}</button>
+                    {replyTarget === ticket.code ? (
+                      <div className="cs-issue-edit">
+                        <input value={replyText} onChange={event => setReplyText(event.target.value)} placeholder="화주에게 전달할 답변을 입력하세요." autoFocus />
+                        <button className="cs-action teal" disabled={csReply.isPending} onClick={() => { if (replyText.trim().length < 2) return toast.error("답변을 2자 이상 입력해 주세요."); csReply.mutate({ ticketCode: ticket.code, message: replyText.trim() }, { onSuccess: () => { setReplyTarget(null); setReplyText(""); } }); }}>등록</button>
+                        <button className="cs-action" onClick={() => { setReplyTarget(null); setReplyText(""); }}>취소</button>
+                      </div>
+                    ) : (
+                      <button className="cs-action" onClick={() => { setReplyTarget(ticket.code); setReplyText(""); }}>답변 등록</button>
+                    )}
                     {(ticket.status === "접수" || ticket.status === "확인 중") && <button className="cs-action" onClick={() => csUpdate.mutate({ ticketCode: ticket.code, status: "확인 중", checkDetail: ticket.checkDetail ?? "대리점 확인중" })}>확인 중 전환</button>}
                     {(ticket.status === "접수" || ticket.status === "확인 중") && <button className="cs-action amber" onClick={() => { if (window.confirm(`${ticket.code} 티켓을 보상 접수 요청 상태로 전환합니다. 화주가 보상 증빙을 등록하면 보상 검토로 이동합니다.`)) csUpdate.mutate({ ticketCode: ticket.code, status: "보상 접수 요청" }); }}>보상 접수 요청</button>}
                     {ticket.status === "보상 검토" && <button className="cs-action teal" onClick={() => { if (window.confirm(`${ticket.code} 티켓을 보상 확정 처리합니다.`)) csUpdate.mutate({ ticketCode: ticket.code, status: "보상 확정" }); }}>보상 확정</button>}
@@ -1209,15 +1239,74 @@ function AgencyConsole() {
   );
 }
 
-function ShipperIssueSummary() {
-  return <section className="shipper-summary"><div className="shipper-summary-head"><div><p className="panel-kicker">CS ISSUE SNAPSHOT · LIVE RESET</p><h2>실제 접수 데이터가 들어오면 요약이 표시됩니다.</h2></div><span><BarChart3 />현재는 샘플 요약 숨김</span></div><div className="empty-state border border-dashed border-[#d8e1de] bg-[#fbfcfb] py-10"><div className="empty-icon"><BarChart3 /></div><h2>더미 이슈 요약을 제거했습니다.</h2><p>DB 초기화 후에는 실제 접수 건이 쌓이기 전까지 요약 차트와 건수가 비어 있는 상태가 맞습니다.</p></div></section>;
+function ShipperIssueSummary({ tickets }: { tickets: CsTicket[] }) {
+  const total = tickets.length;
+  const activeCount = tickets.filter(ticket => ticket.status !== "처리 완료").length;
+  const issueCount = tickets.filter(ticket => ticket.isIssue && ticket.status !== "처리 완료").length;
+  const doneCount = tickets.filter(ticket => ticket.status === "처리 완료").length;
+  const monthAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const recentCount = tickets.filter(ticket => new Date(ticket.createdAt).getTime() >= monthAgo).length;
+  const typeRows = ticketTypeOptions.map(type => ({ type, count: tickets.filter(ticket => ticket.type === type).length })).filter(row => row.count > 0).sort((a, b) => b.count - a.count);
+  const openIssues = tickets.filter(ticket => ticket.isIssue && ticket.status !== "처리 완료").slice(0, 3);
+  if (total === 0) {
+    return (
+      <section className="data-card mt-5">
+        <div className="data-card-head"><div><p className="panel-kicker">CS ISSUE SNAPSHOT · LIVE DATA</p><h2>내 CS 문의 요약</h2></div></div>
+        <div className="empty-state m-6"><div className="empty-icon"><BarChart3 /></div><h2>아직 집계할 CS가 없습니다.</h2><p>첫 CS가 접수되면 유형별 비중과 처리 현황이 실시간으로 집계됩니다.</p></div>
+      </section>
+    );
+  }
+  return (
+    <section className="data-card mt-5">
+      <div className="data-card-head">
+        <div>
+          <p className="panel-kicker">CS ISSUE SNAPSHOT · LIVE DATA</p>
+          <h2>내 CS 문의 요약</h2>
+          <p className="mt-1 text-sm text-[#637287]">실제 접수 내역을 실시간으로 집계합니다. 최근 30일 {recentCount}건 · 전체 {total}건</p>
+        </div>
+        <Badge className="bg-[#edf7f5] text-[#197a70]">실시간 조회</Badge>
+      </div>
+      <div className="cs-stat-grid mt-5">
+        <div className="cs-stat navy"><p>전체 접수</p><strong>{total}<span>건</span></strong><small>누적 기준</small></div>
+        <div className="cs-stat mint"><p>진행 중</p><strong>{activeCount}<span>건</span></strong><small>접수·확인 중·보상 단계</small></div>
+        <div className="cs-stat orange"><p>이슈건</p><strong>{issueCount}<span>건</span></strong><small>우선 확인이 필요한 건</small></div>
+        <div className="cs-stat steel"><p>처리 완료</p><strong>{doneCount}<span>건</span></strong><small>누적 종결 기준</small></div>
+      </div>
+      <div className="mt-5 grid gap-6 md:grid-cols-2">
+        <div>
+          <p className="text-[11px] font-bold tracking-[.13em] text-[#7d8f9d]">유형별 접수 비중</p>
+          <div className="mt-3 grid gap-2.5">
+            {typeRows.map(row => (
+              <div key={row.type} className="flex items-center gap-3">
+                <span className="w-[120px] shrink-0"><TicketTag type={row.type} /></span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#eef2f0]"><div className="h-full rounded-full bg-[#0e9f95]" style={{ width: `${Math.round((row.count / total) * 100)}%` }} /></div>
+                <span className="w-12 shrink-0 text-right text-xs font-bold text-[#4a5c6e]">{row.count}건</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="text-[11px] font-bold tracking-[.13em] text-[#7d8f9d]">우선 확인 · 이슈건</p>
+          <div className="mt-3 grid gap-2">
+            {openIssues.length === 0 ? <p className="rounded-lg border border-[#cbe9e3] bg-[#effaf8] px-3 py-2.5 text-xs font-bold text-[#087970]"><CheckCircle2 className="mr-1.5 inline h-3.5 w-3.5" />현재 관리 중인 이슈건이 없습니다.</p> : openIssues.map(ticket => (
+              <div key={ticket.code} className="rounded-lg border border-[#f2d9d9] bg-[#fdf5f5] px-3 py-2.5">
+                <p className="flex items-center gap-2 text-xs font-bold text-[#a34d4d]">{ticket.code} · <TicketTag type={ticket.type} /></p>
+                <p className="mt-1 text-xs text-[#7a5a5a]">{ticket.issueNote || "이슈 사유 없음 · 대리점 확인 중"}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
-function ShipperPortal({ organizationName }: { organizationName: string }) {
+function ShipperPortal({ organizationName, accountRole }: { organizationName: string; accountRole: "owner" | "member" | null }) {
+  const isOwner = accountRole !== "member";
   const [tab, setTab] = useState<"tickets" | "risk" | "completed" | "documents" | "settlement" | "settings">("tickets");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const { logout } = useAuth();
+  const { logout, user: authUser } = useAuth();
 
   const [tracking, setTracking] = useState("");
   const [issueType, setIssueType] = useState<TicketType>("파손/분실");
@@ -1238,6 +1327,27 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
       toast.success("CS 피드백을 모두 확인 처리했습니다.");
     },
   });
+  const csReply = trpc.cs.reply.useMutation({
+    onSuccess: async () => {
+      await csUtils.cs.list.invalidate();
+      toast.success("답변을 등록했습니다. 대리점과 히스토리에 기록됩니다.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const csFollow = trpc.cs.follow.useMutation({
+    onSuccess: async (_data, variables) => {
+      await csUtils.cs.list.invalidate();
+      toast.success(variables.follow ? "이 티켓의 담당으로 팔로잉했습니다." : "팔로잉을 해제했습니다.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const csComplete = trpc.cs.completeByShipper.useMutation({
+    onSuccess: async () => {
+      await csUtils.cs.list.invalidate();
+      toast.success("CS를 처리 완료로 마무리했습니다.");
+    },
+    onError: error => toast.error(error.message),
+  });
   const csList = trpc.cs.list.useQuery(undefined, { retry: false });
   const shipperTickets = (csList.data ?? []).filter(ticket =>
     `${ticket.trackingNumber}${ticket.recipient}`.includes(search)
@@ -1246,6 +1356,8 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
   const unreadFeedbackCount = (csList.data ?? []).filter(isUnreadTicket).length;
   const [compensationProofs, setCompensationProofs] = useState<EvidenceFile[]>([]);
   const [compensationTarget, setCompensationTarget] = useState("");
+  const [replyTarget, setReplyTarget] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
   const [detailCode, setDetailCode] = useState<string | null>(null);
   const detailTicket = detailCode ? (csList.data ?? []).find(ticket => ticket.code === detailCode) ?? null : null;
   const compensationInputRef = useRef<HTMLInputElement>(null);
@@ -1420,6 +1532,20 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
             ))}
           </div>
         )}
+        <div className="cs-ticket-actions" onDoubleClick={event => event.stopPropagation()}>
+          {ticket.followedByUserId ? <span className="cs-follow-chip">담당 · {ticket.followedByName ?? "팔로잉 중"}</span> : null}
+          <button className="cs-action" onClick={() => csFollow.mutate({ ticketCode: ticket.code, follow: ticket.followedByUserId !== authUser?.id })}>{ticket.followedByUserId === authUser?.id ? "팔로잉 해제" : "팔로잉"}</button>
+          {replyTarget === ticket.code ? (
+            <div className="cs-issue-edit">
+              <input value={replyText} onChange={event => setReplyText(event.target.value)} placeholder="대리점에 전달할 답변을 입력하세요." autoFocus />
+              <button className="cs-action teal" disabled={csReply.isPending} onClick={() => { if (replyText.trim().length < 2) return toast.error("답변을 2자 이상 입력해 주세요."); csReply.mutate({ ticketCode: ticket.code, message: replyText.trim() }, { onSuccess: () => { setReplyTarget(null); setReplyText(""); } }); }}>등록</button>
+              <button className="cs-action" onClick={() => { setReplyTarget(null); setReplyText(""); }}>취소</button>
+            </div>
+          ) : (
+            <button className="cs-action" onClick={() => { setReplyTarget(ticket.code); setReplyText(""); }}>답변 등록</button>
+          )}
+          {ticket.status !== "처리 완료" && <button className="cs-action teal" onClick={() => { if (window.confirm(`${ticket.code} CS를 처리 완료로 마무리합니다. 계속하시겠습니까?`)) csComplete.mutate({ ticketCode: ticket.code }); }}>CS 마무리</button>}
+        </div>
         {ticket.status === "보상 접수 요청" && compensationTarget === ticket.code && (
           <div className="compensation-upload">
             <input
@@ -1516,7 +1642,7 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
             <p className="eyebrow">SHIPPER PORTAL · LIVE STATUS</p>
             <h1>안녕하세요, {organizationName} 운영팀</h1>
             <p className="subtitle">
-              CS 접수와 배송 위험 현황을 한 곳에서 확인하세요.
+              CS 접수와 처리 현황을 한 곳에서 확인하세요.
             </p>
           </div>
           <div className="portal-actions">
@@ -1540,13 +1666,6 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
             </Button>
             <Button
               variant="outline"
-              onClick={() => toast("엑셀 업로드 화면을 열었습니다.")}
-            >
-              <FileSpreadsheet className="mr-1.5 h-4 w-4" />
-              대량 업로드
-            </Button>
-            <Button
-              variant="outline"
               className="hidden sm:flex"
               onClick={() => toast("CS 처리 보고서를 준비했습니다.")}
             >
@@ -1563,32 +1682,38 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
           >
             <MessageSquareText className="h-4 w-4" />내 CS 문의 <span>{shipperTickets.filter(ticket => ticket.status !== "처리 완료").length}</span>
           </button>
-          <button
-            className={tab === "risk" ? "portal-tab-active" : ""}
-            onClick={() => setTab("risk")}
-          >
-            <AlertTriangle className="h-4 w-4" />
-            배송지연 리스크{" "}
-            <span className="bg-[#f8e2df] text-[#bd4949]">2</span>
-          </button>
+          {SHOW_RISK_MENUS && (
+            <button
+              className={tab === "risk" ? "portal-tab-active" : ""}
+              onClick={() => setTab("risk")}
+            >
+              <AlertTriangle className="h-4 w-4" />
+              배송지연 리스크{" "}
+              <span className="bg-[#f8e2df] text-[#bd4949]">2</span>
+            </button>
+          )}
           <button
             className={tab === "completed" ? "portal-tab-active" : ""}
             onClick={() => setTab("completed")}
           >
             <CheckCircle2 className="h-4 w-4" />처리 완료 <span>{completedTickets.length}</span>
           </button>
-          <button
-            className={tab === "documents" ? "portal-tab-active" : ""}
-            onClick={() => setTab("documents")}
-          >
-            <FileText className="h-4 w-4" />날인 문서 <span className="bg-[#eef2f8] text-[#263e60]">PDF</span>
-          </button>
-          <button
-            className={tab === "settlement" ? "portal-tab-active" : ""}
-            onClick={() => setTab("settlement")}
-          >
-            <Landmark className="h-4 w-4" />정산 정보
-          </button>
+          {isOwner && (
+            <>
+              <button
+                className={tab === "documents" ? "portal-tab-active" : ""}
+                onClick={() => setTab("documents")}
+              >
+                <FileText className="h-4 w-4" />날인 문서 <span className="bg-[#eef2f8] text-[#263e60]">PDF</span>
+              </button>
+              <button
+                className={tab === "settlement" ? "portal-tab-active" : ""}
+                onClick={() => setTab("settlement")}
+              >
+                <Landmark className="h-4 w-4" />정산 정보
+              </button>
+            </>
+          )}
           <button
             className={tab === "settings" ? "portal-tab-active" : ""}
             onClick={() => setTab("settings")}
@@ -1604,17 +1729,17 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
           <ShipperSettlementCenter />
         ) : tab === "completed" ? (
           <>
-            <ShipperIssueSummary />
+            <ShipperIssueSummary tickets={csList.data ?? []} />
             <section className="data-card mt-5">
               <div className="data-card-head"><div><p className="panel-kicker">COMPLETED CS</p><h2>처리 완료 이력</h2></div></div>
               {csList.isLoading ? <p className="p-8 text-center text-sm text-[#637287]">CS 내역을 불러오는 중입니다.</p> : completedTickets.length === 0 ? <div className="empty-state m-6"><div className="empty-icon"><CheckCircle2 /></div><h2>처리 완료된 CS가 아직 없습니다.</h2><p>대리점에서 처리를 완료하면 이 목록에 기록됩니다.</p></div> : <div className="cs-ticket-list">{completedTickets.map(renderTicketCard)}</div>}
             </section>
           </>
         ) : tab === "settings" ? (
-          <ShipperSettingsView />
+          <ShipperSettingsView isOwner={isOwner} />
         ) : (
           <>
-            <ShipperIssueSummary />
+            <ShipperIssueSummary tickets={csList.data ?? []} />
             <section className="data-card mt-5">
               <div className="data-card-head"><div><p className="panel-kicker">MY CS TICKETS</p><h2>내 CS 문의</h2></div><Badge className="bg-[#edf7f5] text-[#197a70]">실시간 조회</Badge></div>
               {csList.isLoading ? <p className="p-8 text-center text-sm text-[#637287]">CS 내역을 불러오는 중입니다.</p> : shipperTickets.length === 0 ? <div className="empty-state m-6"><div className="empty-icon"><MessageSquareText /></div><h2>아직 접수한 CS가 없습니다.</h2><p>상단의 건별 CS 접수 버튼으로 첫 문의를 등록하면 대리점과 실시간으로 연결됩니다.</p></div> : <div className="cs-ticket-list">{shipperTickets.map(renderTicketCard)}</div>}
@@ -2022,12 +2147,78 @@ function FontScaleSettings() {
   );
 }
 
-function ShipperSettingsView() {
+function ShipperSettingsView({ isOwner = true }: { isOwner?: boolean }) {
   return (
     <div className="page-enter mt-5 grid gap-4">
       <FontScaleSettings />
       <SessionSecurityCard />
+      {isOwner && <StaffManagementCard />}
     </div>
+  );
+}
+
+function StaffManagementCard() {
+  const profile = trpc.auth.profile.useQuery(undefined, { retry: false });
+  const members = trpc.permissions.shipperMembers.useQuery(undefined, { retry: false });
+  const utils = trpc.useUtils();
+  const [contactName, setContactName] = useState("");
+  const [inviteUrl, setInviteUrl] = useState("");
+  const createStaff = trpc.invites.createStaff.useMutation({
+    onSuccess: async result => {
+      setInviteUrl(`${window.location.origin}/account-setup?role=shipper&staffInviteToken=${encodeURIComponent(result.token)}`);
+      setContactName("");
+      await utils.permissions.shipperMembers.invalidate();
+      toast.success("직원 서브 계정 초대 링크를 생성했습니다. 7일간 유효합니다.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const submit = () => {
+    if (contactName.trim().length < 2) return toast.error("담당자명을 2자 이상 입력해 주세요.");
+    const org = profile.data;
+    if (!org?.organizationName || !org.businessNumber) return toast.error("조직 정보를 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+    createStaff.mutate({ organizationType: "shipper", organizationName: org.organizationName, businessNumber: org.businessNumber, contactName: contactName.trim() });
+  };
+  return (
+    <section className="rounded-xl border border-[#dae5e2] bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="rounded-lg bg-[#eef2f8] p-2 text-[#33527a]"><UsersRound className="h-4 w-4" /></span>
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold tracking-[.13em] text-[#7d8f9d]">TEAM ACCOUNTS</p>
+          <h2 className="font-bold text-[#283a50]">직원 서브 계정 관리</h2>
+          <p className="text-xs text-[#637287]">메인 계정(1레벨)에서만 직원 계정을 만들 수 있습니다. 직원이 로그인하면 회사 CS 전체를 조회·답변·팔로잉할 수 있습니다.</p>
+        </div>
+      </div>
+      <div className="mt-4 rounded-lg border border-[#e7eee9] bg-[#f7faf7] p-3">
+        <p className="text-[11px] font-bold text-[#5d7264]">직원 계정 {members.data?.length ?? "-"}명</p>
+        {members.isLoading ? <p className="mt-1 text-xs text-[#637287]">직원 계정을 불러오는 중입니다.</p> : members.isError ? <p className="mt-1 text-xs text-[#a34d4d]">직원 계정을 불러오지 못했습니다.</p> : (
+          <ul className="mt-2 grid gap-1.5">
+            {members.data?.map(member => (
+              <li key={member.userId} className="flex flex-wrap items-center gap-2 text-xs">
+                <strong className="text-[#283a50]">{member.contactName}</strong>
+                <span className="text-[#637287]">{member.loginId}</span>
+                <Badge className={member.accountRole === "owner" ? "bg-[#eef2f8] text-[#33527a]" : "bg-[#e7f6f2] text-[#0b7d72]"}>{member.accountRole === "owner" ? "메인 계정" : "서브 계정"}</Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="mt-4 flex flex-wrap items-end gap-2">
+        <label className="min-w-[180px] flex-1">
+          <span className="mb-1 block text-xs font-bold text-[#3d4a5c]">새 직원 담당자명</span>
+          <Input value={contactName} onChange={event => setContactName(event.target.value)} placeholder="예: 김담당" />
+        </label>
+        <Button size="sm" className="bg-[#0e9f95] hover:bg-[#0b887f]" disabled={createStaff.isPending} onClick={submit}>{createStaff.isPending ? "링크 생성 중..." : "초대 링크 생성"}</Button>
+      </div>
+      {inviteUrl && (
+        <div className="mt-3 rounded-lg border border-[#cbe9e3] bg-[#effaf8] p-3">
+          <p className="text-[11px] font-bold text-[#087970]">생성된 초대 링크 (7일간 1회 사용 가능)</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1.5 text-[11px] text-[#283a50]">{inviteUrl}</code>
+            <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(inviteUrl).then(() => toast.success("초대 링크를 복사했습니다. 직원에게 안내해 주세요.")).catch(() => toast.error("복사에 실패했습니다. 링크를 직접 선택해 주세요.")); }}>링크 복사</Button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -2114,7 +2305,7 @@ function HomeInner() {
   if (!isAuthenticated) return <main className="console-access-gate"><div><LockKeyhole /><p className="eyebrow">SIGN IN REQUIRED</p><h1>로그인 후 업무 공간을 열 수 있습니다.</h1><span>대리점 운영자 또는 화주 담당자의 개인 계정으로 접속해 주세요.</span><Button onClick={() => window.location.assign("/login?returnTo=/console")} className="mt-5 bg-[#0e9f95] hover:bg-[#0b887f]">로그인하기 <ArrowRight /></Button></div></main>;
   if (profile.isError || !profile.data?.organizationType) return <main className="console-access-gate"><div><AlertTriangle /><p className="eyebrow">ROLE NOT ASSIGNED</p><h1>조직 역할을 확인할 수 없습니다.</h1><span>계정 활성화가 완료되지 않았거나 이 업무 공간에 접근할 권한이 없습니다. 초대를 보낸 운영자에게 문의해 주세요.</span><Button onClick={() => window.location.assign("/login")} variant="outline" className="mt-5">로그인 화면으로</Button></div></main>;
   const role: Role = profile.data.organizationType;
-  return role === "agency" ? <AgencyConsole /> : <ShipperPortal organizationName={profile.data.organizationName ?? "화주"} />;
+  return role === "agency" ? <AgencyConsole /> : <ShipperPortal organizationName={profile.data.organizationName ?? "화주"} accountRole={profile.data.accountRole ?? null} />;
 }
 
 type Permission = "전체 관리" | "티켓 관리" | "보상 검토" | "화주 관리" | "보고서 열람" | "설정 관리";

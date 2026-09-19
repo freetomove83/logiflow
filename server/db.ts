@@ -140,6 +140,13 @@ export async function getCredentialAccountsByOrganization(organizationType: "age
   return db.select().from(credentialAccounts).where(and(eq(credentialAccounts.organizationType, organizationType), eq(credentialAccounts.organizationName, organizationName), eq(credentialAccounts.businessNumber, businessNumber)));
 }
 
+export async function getOrganizationOwnerAccount(organizationType: "agency" | "shipper", organizationName: string, businessNumber: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(credentialAccounts).where(and(eq(credentialAccounts.organizationType, organizationType), eq(credentialAccounts.organizationName, organizationName), eq(credentialAccounts.businessNumber, businessNumber), eq(credentialAccounts.accountRole, "owner"))).orderBy(credentialAccounts.id).limit(1);
+  return result[0];
+}
+
 export async function getShipperInviteByToken(token: string) {
   const db = await getDb();
   if (!db) return undefined;
@@ -292,6 +299,13 @@ export async function updateCsTicketByShipper(code: string, shipperUserId: numbe
   const set: Partial<InsertCsTicket> = { updatedAt: new Date() };
   if (patch.status) set.status = patch.status;
   const result = await db.update(csTickets).set(set).where(and(eq(csTickets.ticketCode, code), eq(csTickets.shipperUserId, shipperUserId))).returning();
+  return result[0];
+}
+
+export async function setCsTicketFollowByCode(code: string, followedByUserId: number | null) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  const result = await db.update(csTickets).set({ followedByUserId, updatedAt: new Date() }).where(eq(csTickets.ticketCode, code)).returning();
   return result[0];
 }
 

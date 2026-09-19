@@ -137,6 +137,7 @@ export const csTickets = pgTable("cs_tickets", {
   issueNote: text("issueNote").default("").notNull(),
   feedbackAt: timestamp("feedbackAt"),
   feedbackSeenAt: timestamp("feedbackSeenAt"),
+  followedByUserId: integer("followedByUserId"),
   trackingNumber: varchar("trackingNumber", { length: 24 }).default("").notNull(),
   recipient: varchar("recipient", { length: 100 }).default("").notNull(),
   note: text("note").notNull(),

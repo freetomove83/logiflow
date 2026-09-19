@@ -169,3 +169,24 @@ button:active { transform: scale(.98); }
 @media (max-width: 580px) { .shipper-summary { padding: 14px; }.shipper-summary-head > span { display: none; }.issue-summary-grid { gap: 12px; }.issue-summary-grid article:nth-child(even) { padding-left: 10px; border-left: 1px solid #e4ebe6; }.company-overview { grid-template-columns: 48px 1fr; }.company-overview > div:last-child { grid-column: auto; }.company-detail-grid dl { grid-template-columns: 1fr; }.company-activity { gap: 4px; }.invite-flow-preview { flex-wrap: wrap; }.invite-modal-actions { align-items: flex-start; gap: 12px; flex-direction: column; } }
 .seal-source > img { height: 22px; width: 22px; border: 1px solid #9bcfc7; border-radius: 50%; object-fit: contain; background: white; }
 .seal-imprint-image { position: absolute; top: -28px; right: 13px; height: 68px; width: 68px; object-fit: contain; opacity: .86; transform: rotate(-12deg); mix-blend-mode: multiply; }
+
+.invite-history { margin-top: 4px; border-top: 1px dashed #dfe7e2; padding-top: 12px; }
+.invite-history h3 { margin: 3px 0 8px; color: #223750; font-family: "Manrope", sans-serif; font-size: 13px; font-weight: 800; }
+.invite-history-empty { color: #8b9aab; font-size: 10px; }
+.invite-history-row { display: flex; align-items: center; gap: 8px; border: 1px solid #e2eae5; border-radius: 6px; padding: 8px 9px; margin-bottom: 6px; background: #fbfdfb; }
+.invite-history-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.invite-history-info strong { color: #223750; font-size: 12px; font-weight: 800; }
+.invite-history-info small { color: #8494a6; font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.invite-status-chip { flex: 0 0 auto; border-radius: 999px; background: #eef4f1; padding: 3px 8px; color: #5a6f82; font-size: 9px; font-weight: 800; }
+.invite-status-chip.ok { background: #e2f5f1; color: #0d8c81; }
+.invite-status-chip.warn { background: #fdf0e4; color: #b96a1f; }
+.invite-history-actions { display: flex; gap: 4px; flex: 0 0 auto; }
+.invite-history-actions button { display: inline-flex; align-items: center; gap: 3px; border: 1px solid #dfe7e2; border-radius: 4px; background: #fff; padding: 4px 7px; color: #35566f; font-size: 9px; font-weight: 800; cursor: pointer; }
+.invite-history-actions button svg { height: 11px; width: 11px; }
+.invite-history-actions button.danger { color: #b3453f; border-color: #ecd3d0; }
+.invite-edit-form { display: flex; flex: 1; flex-wrap: wrap; gap: 6px; align-items: center; }
+.invite-edit-form input { flex: 1 1 120px; min-width: 0; height: 30px; font-size: 11px; }
+.invite-edit-form button { border-radius: 4px; background: #0e9f95; color: #fff; font-size: 10px; font-weight: 800; padding: 6px 10px; cursor: pointer; }
+.invite-edit-form button:last-child { background: #eef2f0; color: #5a6f82; }
+@media (max-width: 580px) { .invite-history-row { flex-wrap: wrap; } .invite-history-actions { flex-wrap: wrap; } }
+

@@ -276,3 +276,17 @@ export async function getClaimedShipperInviteByBusinessNumber(businessNumber: st
   const result = await db.select().from(shipperInvites).where(and(eq(shipperInvites.businessNumber, businessNumber), eq(shipperInvites.status, "claimed"))).limit(1);
   return result[0] ?? null;
 }
+
+export async function updateShipperInviteByOwner(id: number, agencyUserId: number, updates: Partial<InsertShipperInvite>) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  const result = await db.update(shipperInvites).set(updates).where(and(eq(shipperInvites.id, id), eq(shipperInvites.agencyUserId, agencyUserId))).returning();
+  return result[0];
+}
+
+export async function deleteShipperInviteByOwner(id: number, agencyUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  const result = await db.delete(shipperInvites).where(and(eq(shipperInvites.id, id), eq(shipperInvites.agencyUserId, agencyUserId))).returning();
+  return result[0];
+}

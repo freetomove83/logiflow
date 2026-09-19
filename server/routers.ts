@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByBusinessNumber, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByBusinessNumber, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, getShipperInvitesByAgencyUserId, getShipperSealByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, upsertShipperSettlementProfile, upsertUser } from "./db";
+import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByBusinessNumber, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByBusinessNumber, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, upsertShipperSettlementProfile, upsertUser } from "./db";
 import { hashPassword, verifyPassword } from "./credentials";
 import { evidenceCategories, safeEvidenceFileName, validateEvidenceUpload } from "./evidence";
 import { validateSealUpload } from "./seal";
@@ -193,6 +193,24 @@ export const appRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "초대 링크 또는 사업자등록번호를 다시 확인해 주세요." });
       }
       return { agencyName: invite.agencyName, shipperName: invite.shipperName, expiresAt: invite.expiresAt } as const;
+    }),
+    list: agencyProcedure.query(async ({ ctx }) => {
+      const invites = await getShipperInvitesByAgencyUserId(ctx.user.id);
+      return invites.slice().sort((a, b) => b.id - a.id).map(invite => ({ id: invite.id, token: invite.token, shipperName: invite.shipperName, businessNumber: invite.businessNumber, status: invite.status, expiresAt: invite.expiresAt, claimedAt: invite.claimedAt, createdAt: invite.createdAt }));
+    }),
+    update: agencyProcedure.input(z.object({
+      id: z.number().int().positive(),
+      shipperName: z.string().trim().min(2).max(255),
+      businessNumber: z.string().regex(/^\d{10}$/, "사업자등록번호 10자리를 숫자로 입력해 주세요."),
+    })).mutation(async ({ ctx, input }) => {
+      const invite = await updateShipperInviteByOwner(input.id, ctx.user.id, { shipperName: input.shipperName, businessNumber: input.businessNumber });
+      if (!invite) throw new TRPCError({ code: "NOT_FOUND", message: "수정할 초대 링크를 찾지 못했습니다." });
+      return { success: true } as const;
+    }),
+    remove: agencyProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const invite = await deleteShipperInviteByOwner(input.id, ctx.user.id);
+      if (!invite) throw new TRPCError({ code: "NOT_FOUND", message: "삭제할 초대 링크를 찾지 못했습니다." });
+      return { success: true } as const;
     }),
     shipperSetup: publicProcedure.input(z.object({ token: z.string().trim().min(8).max(80) })).query(async ({ input }) => {
       const invite = await getShipperInviteByToken(input.token);

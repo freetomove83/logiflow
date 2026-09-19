@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByBusinessNumber, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, getShipperInvitesByAgencyUserId, getShipperSealByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, upsertShipperSettlementProfile, upsertUser } from "./db";
+import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByBusinessNumber, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByBusinessNumber, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, getShipperInvitesByAgencyUserId, getShipperSealByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, upsertShipperSettlementProfile, upsertUser } from "./db";
 import { hashPassword, verifyPassword } from "./credentials";
 import { evidenceCategories, safeEvidenceFileName, validateEvidenceUpload } from "./evidence";
 import { validateSealUpload } from "./seal";
@@ -177,9 +177,11 @@ export const appRouter = router({
       shipperName: z.string().trim().min(2).max(255),
       businessNumber: z.string().regex(/^\d{10}$/, "초대할 화주의 사업자등록번호 10자리를 숫자로 입력해 주세요."),
     })).mutation(async ({ ctx, input }) => {
+      const actorAccount = await getCredentialAccountByUserId(ctx.user.id);
+      const agencyName = actorAccount?.organizationName || input.agencyName;
       const token = `lf-${randomUUID().replace(/-/g, "")}`;
       const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14);
-      await createShipperInvite({ token, agencyUserId: ctx.user.id, agencyName: input.agencyName, shipperName: input.shipperName, businessNumber: input.businessNumber, status: "active", expiresAt });
+      await createShipperInvite({ token, agencyUserId: ctx.user.id, agencyName, shipperName: input.shipperName, businessNumber: input.businessNumber, status: "active", expiresAt });
       return { token, expiresAt } as const;
     }),
     verify: publicProcedure.input(z.object({
@@ -197,7 +199,8 @@ export const appRouter = router({
       if (!invite || invite.expiresAt.getTime() < Date.now()) {
         throw new TRPCError({ code: "FORBIDDEN", message: "유효하지 않거나 만료된 화주 초대 링크입니다." });
       }
-      return { agencyName: invite.agencyName, shipperName: invite.shipperName, businessNumber: invite.businessNumber, expiresAt: invite.expiresAt } as const;
+      const agencyAccount = await getCredentialAccountByUserId(invite.agencyUserId);
+      return { agencyName: agencyAccount?.organizationName || invite.agencyName, shipperName: invite.shipperName, businessNumber: invite.businessNumber, expiresAt: invite.expiresAt } as const;
     }),
     staffSetup: publicProcedure.input(z.object({ token: z.string().trim().min(8).max(80) })).query(async ({ input }) => {
       const invite = await getStaffInviteByToken(input.token);
@@ -289,11 +292,15 @@ export const appRouter = router({
           lastDownloadedAt: documentDownloads.at(-1)?.createdAt ?? null,
         };
       });
+      const account = await getCredentialAccountByUserId(ctx.user.id);
+      const claimedInvite = account ? await getClaimedShipperInviteByBusinessNumber(account.businessNumber) : null;
+      const agencyAccount = claimedInvite ? await getCredentialAccountByUserId(claimedInvite.agencyUserId) : null;
       return {
         pendingSettlement: !settlement || settlement.status !== "verified",
         pendingSignatureDocuments: Array.from(applied).filter(documentRef => !finalized.has(documentRef)),
         finalizedDocuments,
         downloadEvents: downloads.map(event => ({ documentRef: event.documentRef, createdAt: event.createdAt })),
+        agencyName: agencyAccount?.organizationName || claimedInvite?.agencyName || null,
       };
     }),
     recordDocumentDownload: shipperProcedure.input(z.object({ documentRef: z.string().trim().min(4).max(96) })).mutation(async ({ ctx, input }) => {

@@ -688,6 +688,8 @@ function AgencySidebar({
   setView: (view: View) => void;
   compact: boolean;
 }) {
+  const csList = trpc.cs.list.useQuery(undefined, { retry: false, refetchInterval: 15000 });
+  const activeTicketCount = (csList.data ?? []).filter(ticket => ticket.status !== "처리 완료").length;
   return (
     <aside
       className={`${compact ? "w-[76px]" : "w-[224px]"} relative hidden shrink-0 flex-col bg-[#12233f] px-3 pb-4 pt-5 text-white transition-[width] duration-200 lg:flex`}
@@ -706,7 +708,7 @@ function AgencySidebar({
         >
           <LayoutDashboard /> {!compact && <span>전체 대시보드</span>}
         </button>
-        {navItems.filter(item => SHOW_RISK_MENUS || item.id !== "risk").map(({ id, label, icon: Icon }) => (
+        {navItems.filter(item => (SHOW_RISK_MENUS || item.id !== "risk") && item.id !== "sla").map(({ id, label, icon: Icon }) => ( // 택배사 API 연동 전까지 화주 SLA 메뉴 숨김
           <button
             key={id}
             className={`sidebar-item ${view === id ? "sidebar-item-active" : ""}`}
@@ -714,9 +716,9 @@ function AgencySidebar({
             title={label}
           >
             <Icon /> {!compact && <span>{label}</span>}
-            {!compact && id === "tickets" && (
+            {!compact && id === "tickets" && activeTicketCount > 0 && (
               <span className="ml-auto rounded-full bg-[#e6b84a] px-1.5 py-0.5 text-[10px] font-bold text-[#12233f]">
-                48
+                {activeTicketCount}
               </span>
             )}
             {!compact && id === "shippers" && (
@@ -732,17 +734,6 @@ function AgencySidebar({
             "linear-gradient(180deg, rgba(18,35,63,.82), rgba(18,35,63,.95))",
         }}
       >
-        {!compact && (
-          <>
-            <div className="flex items-center gap-2 text-[11px] font-bold text-white/85">
-              <ShieldCheck className="h-4 w-4 text-[#5bd4c7]" />
-              연동 상태 정상
-            </div>
-            <p className="mt-1.5 text-[10px] leading-relaxed text-white/50">
-              3개 택배사 API가 최신 상태입니다.
-            </p>
-          </>
-        )}
         {compact && <ShieldCheck className="mx-auto h-5 w-5 text-[#5bd4c7]" />}
       </div>
     </aside>
@@ -753,12 +744,21 @@ function AgencyHeader({
   compact,
   setCompact,
   onOpenTrack,
+  shipperFilter,
+  onSelectShipper,
 }: {
   compact: boolean;
   setCompact: (value: boolean) => void;
   onOpenTrack: (value: string) => void;
+  shipperFilter: { id: number; name: string } | null;
+  onSelectShipper: (value: { id: number; name: string } | null) => void;
 }) {
   const { logout } = useAuth();
+  const [shipperOpen, setShipperOpen] = useState(false);
+  const shipperHistory = trpc.operations.agencyShipperHistory.useQuery(undefined, { retry: false });
+  const csRows = trpc.cs.list.useQuery(undefined, { retry: false });
+  const shippers = (shipperHistory.data ?? []).flatMap(item => item.ownerUserId ? [{ id: item.ownerUserId, name: item.name }] : []);
+  const activeForFilter = shipperFilter ? (csRows.data ?? []).filter(ticket => ticket.shipperUserId === shipperFilter.id && ticket.status !== "처리 완료").length : 0;
   return (
     <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-[#e7e8e4] bg-[#fffefb] px-4 sm:px-7">
       <button
@@ -771,14 +771,29 @@ function AgencyHeader({
         />
       </button>
       <div className="hidden h-7 w-px bg-[#e2e6e1] sm:block" />
-      <button className="top-select hidden sm:flex">
-        <Building2 className="h-4 w-4" />
-        전체 화주 모드{" "}
-        <span className="rounded bg-[#edf3f2] px-1.5 py-0.5 text-[10px] text-[#237d73]">
-          <ShipperCountValue />
-        </span>
-        <ChevronDown className="h-3.5 w-3.5" />
-      </button>
+      <div className="relative hidden sm:block">
+        <button className="top-select hidden sm:flex" onClick={() => setShipperOpen(current => !current)}>
+          <Building2 className="h-4 w-4" />
+          {shipperFilter ? `${shipperFilter.name} CS 보기` : "전체 화주 모드"}{" "}
+          <span className="rounded bg-[#edf3f2] px-1.5 py-0.5 text-[10px] text-[#237d73]">
+            {shipperFilter ? `진행 ${activeForFilter}` : <ShipperCountValue />}
+          </span>
+          <ChevronDown className="h-3.5 w-3.5" />
+        </button>
+        {shipperOpen && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setShipperOpen(false)} />
+            <div className="shipper-select-panel">
+              <button type="button" className={!shipperFilter ? "on" : ""} onClick={() => { onSelectShipper(null); setShipperOpen(false); }}>전체 화주 (통합)</button>
+              {shipperHistory.isLoading && <p className="shipper-select-empty">화주 목록을 불러오는 중입니다.</p>}
+              {!shipperHistory.isLoading && shippers.length === 0 && <p className="shipper-select-empty">가입 완료된 화주가 없습니다.</p>}
+              {shippers.map(shipper => (
+                <button key={shipper.id} type="button" className={shipperFilter?.id === shipper.id ? "on" : ""} onClick={() => { onSelectShipper(shipper); setShipperOpen(false); }}>{shipper.name}</button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
       <TrackingLookup onOpenTrack={onOpenTrack} />
       <GlobalSearch />
       <Button
@@ -1330,7 +1345,7 @@ function OverviewView({ onOpenTickets }: { onOpenTickets: () => void }) {
   );
 }
 
-function TicketsView() {
+function TicketsView({ shipperFilter = null, onClearFilter }: { shipperFilter?: { id: number; name: string } | null; onClearFilter?: () => void }) {
   const utils = trpc.useUtils();
   const { user: authUser } = useAuth();
   const csList = trpc.cs.list.useQuery(undefined, { retry: false });
@@ -1370,7 +1385,8 @@ function TicketsView() {
     },
     onError: error => toast.error(error.message),
   });
-  const rows = csList.data ?? [];
+  const rowsAll = csList.data ?? [];
+  const rows = shipperFilter ? rowsAll.filter(ticket => ticket.shipperUserId === shipperFilter.id) : rowsAll;
   const todayKey = new Date().toDateString();
   const todayCount = rows.filter(ticket => new Date(ticket.createdAt).toDateString() === todayKey).length;
   const checkingRows = rows.filter(ticket => ticket.status === "확인 중");
@@ -1426,6 +1442,12 @@ function TicketsView() {
             </select>
             <button className="cs-action teal" onClick={() => csBulk.mutate({ codes: selectedCodes, checkDetail: bulkDetail }, { onSuccess: () => setSelectedCodes([]) })}>일괄 확인 중 변경</button>
             <button className="cs-action" onClick={() => setSelectedCodes([])}>선택 해제</button>
+          </div>
+        )}
+        {shipperFilter && (
+          <div className="cs-filter-banner">
+            <span><Building2 className="mr-1.5 inline h-3.5 w-3.5" />{shipperFilter.name} 화주 CS {rows.length}건 표시 중</span>
+            <button type="button" onClick={onClearFilter}>전체 보기</button>
           </div>
         )}
         {csList.isLoading ? (
@@ -1659,10 +1681,11 @@ function AgencyConsole() {
   const [view, setView] = useState<View>("dashboard");
   const [compact, setCompact] = useState(false);
   const [trackNumber, setTrackNumber] = useState("");
+  const [shipperFilter, setShipperFilter] = useState<{ id: number; name: string } | null>(null);
   const renderView = () => {
     if (view === "dashboard") return <OverviewView onOpenTickets={() => setView("tickets")} />;
     if (view === "track") return <TrackView trackingNumber={trackNumber} onBack={() => setView("tickets")} />;
-    if (view === "tickets") return <TicketsView />;
+    if (view === "tickets") return <TicketsView shipperFilter={shipperFilter} onClearFilter={() => setShipperFilter(null)} />;
     if (view === "risk") return <RiskView />;
     if (view === "sla") return <SLAView />;
     if (view === "shippers") return <ShippersView />;
@@ -1678,6 +1701,8 @@ function AgencyConsole() {
           compact={compact}
           setCompact={setCompact}
           onOpenTrack={value => { setTrackNumber(value); setView("track"); }}
+          shipperFilter={shipperFilter}
+          onSelectShipper={value => { setShipperFilter(value); setView("tickets"); }}
         />
         {renderView()}
         <CsPopupWatcher side="agency" />

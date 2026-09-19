@@ -315,3 +315,14 @@ body { zoom: var(--app-zoom); }
 .cs-popup-pos-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-width: 320px; }
 .cs-popup-pos, .cs-popup-pos-on { border-radius: 8px; border: 1px solid #dbe4de; background: #ffffff; padding: 8px 10px; font-size: 11.5px; font-weight: 700; color: #4a5c6e; cursor: pointer; }
 .cs-popup-pos-on { background: #0e9f95; border-color: #0e9f95; color: #ffffff; }
+
+/* Header shipper selector dropdown */
+.shipper-select-panel { position: absolute; top: 44px; left: 0; z-index: 50; width: 230px; display: grid; gap: 2px; border: 1px solid #e2e9e3; border-radius: 10px; background: #ffffff; padding: 6px; box-shadow: 0 14px 34px rgba(40, 58, 80, .16); max-height: 320px; overflow-y: auto; }
+.shipper-select-panel button { border: 0; border-radius: 7px; padding: 8px 10px; font-size: 12px; font-weight: 700; color: #33475a; text-align: left; cursor: pointer; background: transparent; }
+.shipper-select-panel button:hover { background: #f3f8f6; }
+.shipper-select-panel button.on { background: #e7f5f3; color: #17796f; }
+.shipper-select-empty { margin: 0; padding: 8px 10px; font-size: 11px; color: #8a99a5; }
+
+/* Filtered CS banner */
+.cs-filter-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #cbe9e3; border-radius: 10px; background: #eaf6f4; padding: 8px 12px; font-size: 12px; font-weight: 700; color: #0b7d72; }
+.cs-filter-banner button { border: 1px solid #0e9f95; border-radius: 6px; background: #0e9f95; color: #ffffff; font-size: 11px; font-weight: 800; padding: 5px 10px; cursor: pointer; white-space: nowrap; }

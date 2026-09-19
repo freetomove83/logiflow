@@ -64,6 +64,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -74,6 +75,19 @@ import { downloadAgreementPdf } from "@/lib/documentPdf";
 import { toast } from "sonner";
 
 type Role = "agency" | "shipper";
+const FONT_SCALE_KEY = "logiflowFontScale";
+const applyFontScale = (value: number) => {
+  document.documentElement.style.setProperty("--app-zoom", String(value));
+};
+(function initFontScale() {
+  try {
+    const stored = parseFloat(localStorage.getItem(FONT_SCALE_KEY) ?? "");
+    if (Number.isFinite(stored) && stored >= 0.8 && stored <= 1.5) applyFontScale(stored);
+  } catch {}
+})();
+
+const fontPresets: Array<[number, string]> = [[0.9, "작게"], [1, "기본"], [1.1, "크게"], [1.25, "더 크게"], [1.4, "최대"]];
+
 type View = "tickets" | "risk" | "sla" | "shippers" | "history" | "reports" | "settings";
 
 type TicketType = "파손/분실" | "배송지연" | "오배송" | "주소변경" | "미수령 확인요청" | "배송문의" | "기타";
@@ -1200,7 +1214,7 @@ function ShipperIssueSummary() {
 }
 
 function ShipperPortal({ organizationName }: { organizationName: string }) {
-  const [tab, setTab] = useState<"tickets" | "risk" | "completed" | "documents" | "settlement">("tickets");
+  const [tab, setTab] = useState<"tickets" | "risk" | "completed" | "documents" | "settlement" | "settings">("tickets");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const { logout } = useAuth();
@@ -1575,6 +1589,12 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
           >
             <Landmark className="h-4 w-4" />정산 정보
           </button>
+          <button
+            className={tab === "settings" ? "portal-tab-active" : ""}
+            onClick={() => setTab("settings")}
+          >
+            <SlidersHorizontal className="h-4 w-4" />화면·세션 설정
+          </button>
         </div>
         {tab === "risk" ? (
           <RiskView shipper />
@@ -1590,6 +1610,8 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
               {csList.isLoading ? <p className="p-8 text-center text-sm text-[#637287]">CS 내역을 불러오는 중입니다.</p> : completedTickets.length === 0 ? <div className="empty-state m-6"><div className="empty-icon"><CheckCircle2 /></div><h2>처리 완료된 CS가 아직 없습니다.</h2><p>대리점에서 처리를 완료하면 이 목록에 기록됩니다.</p></div> : <div className="cs-ticket-list">{completedTickets.map(renderTicketCard)}</div>}
             </section>
           </>
+        ) : tab === "settings" ? (
+          <ShipperSettingsView />
         ) : (
           <>
             <ShipperIssueSummary />
@@ -1901,6 +1923,114 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
   );
 }
 
+function formatSessionRemaining(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 60000));
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  if (hours > 0) return `${hours}시간 ${minutes}분`;
+  if (minutes >= 1) return `${minutes}분`;
+  return "1분 미만";
+}
+
+function useSessionState() {
+  const utils = trpc.useUtils();
+  const session = trpc.auth.sessionState.useQuery(undefined, { refetchInterval: 30000, retry: false });
+  const extend = trpc.auth.extendSession.useMutation({
+    onSuccess: async () => {
+      await utils.auth.sessionState.invalidate();
+      toast.success("로그인 세션을 8시간 연장했습니다.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  return { session, extend };
+}
+
+function SessionSecurityCard() {
+  const { session, extend } = useSessionState();
+  const expiresAt = session.data?.expiresAt ?? null;
+  const remaining = expiresAt !== null ? expiresAt - Date.now() : null;
+  let statusText: string;
+  if (session.isLoading) statusText = "세션 상태를 확인하는 중입니다.";
+  else if (session.isError || remaining === null) statusText = "세션 정보를 확인할 수 없습니다. 다시 로그인해 주세요.";
+  else if (remaining <= 0) statusText = "세션이 만료되었습니다. 다시 로그인해 주세요.";
+  else statusText = `만료까지 약 ${formatSessionRemaining(remaining)} 남았습니다. 만료가 임박하면 연장할 수 있습니다.`;
+  return (
+    <section className="rounded-xl border border-[#dae5e2] bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="rounded-lg bg-[#eef2f8] p-2 text-[#33527a]"><LockKeyhole className="h-4 w-4" /></span>
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold tracking-[.13em] text-[#7d8f9d]">LOGIN SESSION</p>
+          <h2 className="font-bold text-[#283a50]">로그인 세션 · 기본 8시간</h2>
+          <p className="text-xs text-[#637287]">{statusText} 대리점·화주 모두 동일하게 적용됩니다.</p>
+        </div>
+        <Button size="sm" className="ml-auto bg-[#0e9f95] hover:bg-[#0b887f]" disabled={extend.isPending} onClick={() => extend.mutate()}>
+          {extend.isPending ? "연장 중..." : "세션 연장"}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function SessionMonitor() {
+  const { session, extend } = useSessionState();
+  const expiresAt = session.data?.expiresAt ?? null;
+  const remaining = expiresAt !== null ? expiresAt - Date.now() : null;
+  if (session.isLoading || session.isError || remaining === null || remaining <= 0 || remaining > 60 * 60 * 1000) return null;
+  return createPortal(
+    <div className="session-banner" role="alert">
+      <span><Clock3 className="h-4 w-4" />로그인 세션이 약 {formatSessionRemaining(remaining)} 후 만료됩니다.</span>
+      <button disabled={extend.isPending} onClick={() => extend.mutate()}>{extend.isPending ? "연장 중..." : "세션 연장"}</button>
+    </div>,
+    document.body
+  );
+}
+
+function FontScaleSettings() {
+  const [scale, setScale] = useState(() => {
+    try {
+      const stored = parseFloat(localStorage.getItem(FONT_SCALE_KEY) ?? "");
+      if (Number.isFinite(stored) && stored >= 0.8 && stored <= 1.5) return stored;
+    } catch {}
+    return 1;
+  });
+  const change = (value: number) => {
+    const next = Math.min(1.5, Math.max(0.8, value));
+    setScale(next);
+    applyFontScale(next);
+    try { localStorage.setItem(FONT_SCALE_KEY, String(next)); } catch {}
+  };
+  return (
+    <section className="rounded-xl border border-[#dae5e2] bg-white p-4 shadow-sm">
+      <p className="text-[11px] font-bold tracking-[.13em] text-[#7d8f9d]">DISPLAY</p>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <h2 className="font-bold text-[#283a50]">화면 글자 크기</h2>
+        <strong className="ml-auto rounded-md bg-[#eef7f5] px-2.5 py-1 text-xs font-extrabold text-[#0b7d72]">{Math.round(scale * 100)}%</strong>
+      </div>
+      <p className="mt-1 text-xs text-[#637287]">전체 화면 배율을 조절합니다. 설정은 이 브라우저에 저장되며 대리점·화주 모든 화면에 적용됩니다.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {fontPresets.map(([value, label]) => (
+          <button key={label} onClick={() => change(value)} className={`rounded-lg border px-3 py-1.5 text-[11px] font-bold ${scale === value ? "border-[#0e9f95] bg-[#e7f6f2] text-[#0b7d72]" : "border-[#dae5e2] bg-white text-[#5a6f83]"}`}>{label} · {Math.round(value * 100)}%</button>
+        ))}
+        {scale !== 1 && <button onClick={() => change(1)} className="rounded-lg border border-[#e2e6e1] bg-[#f5f7f4] px-3 py-1.5 text-[11px] font-bold text-[#6b7d8d]">기본 크기로 복원</button>}
+      </div>
+      <input type="range" min={0.8} max={1.5} step={0.05} value={scale} onChange={event => change(parseFloat(event.target.value))} className="mt-3 w-full accent-[#0e9f95]" aria-label="화면 글자 크기 조절" />
+      <div className="mt-3 rounded-lg border border-[#e7eee9] bg-[#f7faf7] p-3">
+        <p className="text-[13px] font-bold text-[#283a50]">미리보기 · TK-418594 미수령 확인요청</p>
+        <p className="mt-1 text-[11px] text-[#637287]">배송완료 문자를 받았으나 고객이 물건을 수령하지 못했습니다. 대리점 확인중 — 확인되는 대로 업데이트하겠습니다.</p>
+      </div>
+    </section>
+  );
+}
+
+function ShipperSettingsView() {
+  return (
+    <div className="page-enter mt-5 grid gap-4">
+      <FontScaleSettings />
+      <SessionSecurityCard />
+    </div>
+  );
+}
+
 function ShipperActionAlerts() {
   const dashboard = trpc.operations.shipperDocumentDashboard.useQuery(undefined, { retry: false });
   if (dashboard.isLoading) return <div className="mt-5 flex items-center gap-2 rounded-xl border border-[#dae5e2] bg-[#f7f9f7] px-4 py-3 text-sm text-[#637287]"><Clock3 className="h-4 w-4 animate-pulse" />정산 및 날인 문서 상태를 확인하는 중입니다.</div>;
@@ -1977,7 +2107,7 @@ function ShipperDocumentCenter({ organizationName }: { organizationName: string 
   return <section className="data-card mt-5 min-h-[420px]"><div className="data-card-head"><div><p className="panel-kicker">STAMPED DOCUMENT ARCHIVE</p><h2>날인 문서 및 다운로드 이력</h2><p className="mt-1 text-sm text-[#637287]">확정된 보상 합의서를 PDF로 보관하고, 다운로드 시점을 확인합니다.</p></div><Badge className="bg-[#edf7f5] text-[#197a70]"><FileText className="mr-1 h-3.5 w-3.5" />확정 {data.finalizedDocuments.length}건</Badge></div>{data.finalizedDocuments.length ? <div className="divide-y divide-[#e6ece9]">{data.finalizedDocuments.map(document => <article key={document.documentRef} className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><span className="rounded-xl bg-[#eef2f8] p-3 text-[#263e60]"><FileText className="h-5 w-5" /></span><div><div className="flex flex-wrap items-center gap-2"><strong>보상 합의서</strong><Badge className="bg-[#eaf6f4] text-[#087970]">직인 날인·확정</Badge></div><p className="mt-1 font-mono text-xs text-[#65758a]">{document.documentRef}</p><p className="mt-1 text-xs text-[#708093]">확정 {new Date(document.finalizedAt).toLocaleString("ko-KR")} · 다운로드 {document.downloadCount}회{document.lastDownloadedAt ? ` · 최근 ${new Date(document.lastDownloadedAt).toLocaleString("ko-KR")}` : ""}</p></div></div><Button variant="outline" onClick={() => downloadDocument(document.documentRef, document.finalizedAt)} disabled={downloadAudit.isPending}><Download className="mr-1.5 h-4 w-4" />{downloadAudit.isPending ? "PDF 준비 중" : "PDF 다운로드"}</Button></article>)}</div> : <div className="py-16 text-center"><Stamp className="mx-auto mb-3 h-8 w-8 text-[#93a2b1]" /><h2 className="font-bold">다운로드할 날인 문서가 없습니다.</h2><p className="mt-2 text-sm text-[#68788c]">대리점과 화주의 합의가 확정되면 이곳에서 PDF로 내려받을 수 있습니다.</p></div>}{data.downloadEvents.length > 0 && <section className="mt-6 border-t border-[#e6ece9] pt-5"><div className="mb-3 flex items-center justify-between"><div><p className="panel-kicker">DOWNLOAD AUDIT LOG</p><h3 className="mt-1 font-bold">최근 다운로드 이력</h3></div><Badge variant="outline">총 {data.downloadEvents.length}회</Badge></div><div className="divide-y divide-[#edf0ed] rounded-xl border border-[#e1e8e5] bg-[#fcfdfb] px-4">{[...data.downloadEvents].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 8).map((event, index) => <div key={`${event.documentRef}-${event.createdAt}-${index}`} className="flex items-center justify-between gap-4 py-3"><div className="min-w-0"><p className="font-mono text-xs font-semibold text-[#334963]">{event.documentRef}</p><p className="mt-1 text-xs text-[#708093]">화주 담당자 PDF 다운로드</p></div><time className="shrink-0 text-right text-xs text-[#65758a]">{new Date(event.createdAt).toLocaleString("ko-KR")}</time></div>)}</div></section>}<div className="mt-5 rounded-xl bg-[#f5f7f4] p-4 text-xs text-[#65758a]"><ShieldCheck className="mr-2 inline h-4 w-4 text-[#0e9f95]" />다운로드 이력에는 문서번호와 시각만 기록됩니다. 직인 이미지와 정산 계좌 원문은 다운로드 이력에 포함되지 않습니다.</div></section>;
 }
 
-export default function Home() {
+function HomeInner() {
   const { isAuthenticated, loading: authLoading } = useAuth();
   const profile = trpc.auth.profile.useQuery(undefined, { enabled: isAuthenticated, retry: false });
   if (authLoading || (isAuthenticated && profile.isLoading)) return <main className="console-access-gate"><div><ShieldCheck /><p className="eyebrow">SECURE WORKSPACE</p><h1>조직 권한을 확인하고 있습니다.</h1><span>담당자별 메뉴를 준비하는 중입니다.</span></div></main>;
@@ -2147,12 +2277,22 @@ const permissionRows: { name: string; role: string; organization: string; permis
 ];
 
 function SettingsView() {
-  const [tab, setTab] = useState<"agency" | "members" | "shipper" | "documents">("agency");
+  const [tab, setTab] = useState<"agency" | "members" | "shipper" | "documents" | "display">("agency");
   const settingsProfile = trpc.auth.profile.useQuery();
   const [courierDraft, setCourierDraft] = useState("");
   useEffect(() => { if (settingsProfile.data?.courier) setCourierDraft(settingsProfile.data.courier); }, [settingsProfile.data?.courier]);
   const updateCourier = trpc.auth.updateCourier.useMutation({ onSuccess: () => toast.success("본사 택배사를 저장했습니다. 이후 가입 화주와 송장 조회에 적용됩니다."), onError: error => toast.error(error.message) });
   const [members, setMembers] = useState(permissionRows);
   const togglePermission = (person: string, permission: Permission) => setMembers(current => current.map(member => member.name !== person ? member : { ...member, permissions: member.permissions.includes(permission) ? member.permissions.filter(item => item !== permission) : [...member.permissions, permission] }));
-  return <div className="management-page settings-page page-enter"><div className="management-title"><div><p className="eyebrow">AGENCY ADMINISTRATION · ACCESS CONTROL</p><h1>대리점 설정</h1><p>조직 정보, 화주 연결, 담당자 권한, 문서 자동화 정책을 설정합니다.</p></div><Button variant="outline" onClick={() => { if (!courierDraft) return toast.error("본사 택배사를 선택해 주세요."); updateCourier.mutate({ courier: courierDraft }); }}><Check />변경 사항 저장</Button></div><div className="settings-layout"><nav className="settings-nav">{([{ id: "agency", icon: Settings, label: "대리점 기본 설정" }, { id: "members", icon: UserCog, label: "조직 및 담당자 권한" }, { id: "shipper", icon: Building2, label: "화주 조직 관리" }, { id: "documents", icon: FilePenLine, label: "문서·직인 정책" }] as const).map(item => <button key={item.id} onClick={() => setTab(item.id)} className={tab === item.id ? "settings-active" : ""}><item.icon />{item.label}<ChevronDown /></button>)}</nav><section className="settings-content">{tab === "agency" && <><div className="settings-heading"><Settings /><div><h2>대리점 기본 정보</h2><p>화주에게 표시되는 운영 주체와 기본 공지 정보를 관리합니다.</p></div></div><div className="settings-form-grid"><label>대리점명 <Input defaultValue={settingsProfile.data?.organizationName || ""} /></label><label>본사 택배사(계약 택배사) <select value={courierDraft} onChange={event => setCourierDraft(event.target.value)}><option value="">택배사 선택</option>{COURIERS.map(item => <option key={item} value={item}>{item}</option>)}</select></label><label>대표 운영 이메일 <Input defaultValue="operation@seoulcentral.co.kr" /></label><label>대표 연락처 <Input defaultValue="02-3278-2100" /></label><label>CS 응답 기준 <select defaultValue="30"><option value="30">30분 이내</option><option value="60">1시간 이내</option><option value="120">2시간 이내</option></select></label></div><div className="settings-notice"><Bell /><div><strong>화주 공지 발송 권한</strong><span>운영 리더와 초대 권한 보유자만 발송 최종 확인 화면을 진행할 수 있습니다.</span></div><BadgeCheck /></div></>}{tab === "members" && <><div className="settings-heading"><UserCog /><div><h2>대리점·화주 담당자 권한</h2><p>조직별로 여러 담당자를 등록하고, 업무 범위에 맞는 최소 권한을 부여합니다.</p></div><div className="ml-auto flex gap-2"><Button variant="outline" onClick={() => window.location.assign("/staff-invite?role=shipper")}>화주 담당자 초대</Button><Button onClick={() => window.location.assign(`/staff-invite?role=agency&organization=${encodeURIComponent(settingsProfile.data?.organizationName || "")}`)} className="bg-[#0e9f95] hover:bg-[#0b887f]"><Plus />대리점 담당자 추가</Button></div></div><div className="permission-table">{members.map(member => <article key={`${member.organization}-${member.name}`}><div className="permission-person"><span>{member.initial}</span><div><strong>{member.name}</strong><small>{member.role} · {member.organization}</small></div></div><div className="permission-chips">{(["전체 관리", "티켓 관리", "보상 검토", "화주 관리", "보고서 열람", "설정 관리"] as Permission[]).map(permission => <button key={permission} className={member.permissions.includes(permission) ? "permission-on" : ""} onClick={() => { togglePermission(member.name, permission); toast(`${member.name}의 ${permission} 권한을 변경했습니다.`); }}><Check />{permission}</button>)}</div><button className="more-member" onClick={() => toast(`${member.name}의 상세 권한 설정을 엽니다.`)}><MoreHorizontal /></button></article>)}</div></>}{tab === "shipper" && <><div className="settings-heading"><Building2 /><div><h2>화주 조직 연결 관리</h2><p>초대 링크로 가입한 화주의 소속과 담당자 수신 정책을 관리합니다.</p></div></div><div className="org-directory empty-state"><Building2 /><h2>연결된 화주 조직이 없습니다.</h2><p>화주가 초대 링크로 가입하면 이곳에 소속과 담당자 수신 정책이 표시됩니다.</p></div></>}{tab === "documents" && <><div className="settings-heading"><FilePenLine /><div><h2>문서 및 직인 사용 정책</h2><p>보상 합의서 등 지정 문서에 적용할 화주 등록 직인과 기록 방식을 관리합니다.</p></div></div><div className="document-policy"><section><div className="policy-icon"><Stamp /></div><div><strong>화주 등록 직인 사용</strong><small>보상 합의서 미리보기에서 자동 적용을 허용합니다.</small></div><button className="policy-switch policy-switch-on" onClick={() => toast("직인 자동 적용 정책은 현재 활성 상태입니다.")}><i /></button></section><section><div className="policy-icon"><History /></div><div><strong>직인 사용 이력 기록</strong><small>문서 생성, 직인 적용, 다운로드 기록을 보관합니다.</small></div><button className="policy-switch policy-switch-on" onClick={() => toast("문서 이력 기록은 현재 활성 상태입니다.")}><i /></button></section><section><div className="policy-icon"><KeyRound /></div><div><strong>직인 적용 권한</strong><small>사고 보상 담당 및 대리점 운영 리더만 실행할 수 있습니다.</small></div><button onClick={() => toast("직인 적용 권한 설정을 엽니다.")} className="policy-link">권한 보기 <ArrowDownRight /></button></section></div><div className="policy-alert"><LockKeyhole /><p><strong>직인은 민감 문서 자산으로 관리됩니다.</strong><span>이 화면의 자동 날인은 내부 운영 미리보기이며, 실제 문서 발행·보관 환경에서는 조직별 접근 제어와 저장 정책을 적용해야 합니다.</span></p></div></>}</section></div></div>;
+  return <div className="management-page settings-page page-enter"><div className="management-title"><div><p className="eyebrow">AGENCY ADMINISTRATION · ACCESS CONTROL</p><h1>대리점 설정</h1><p>조직 정보, 화주 연결, 담당자 권한, 문서 자동화 정책을 설정합니다.</p></div><Button variant="outline" onClick={() => { if (!courierDraft) return toast.error("본사 택배사를 선택해 주세요."); updateCourier.mutate({ courier: courierDraft }); }}><Check />변경 사항 저장</Button></div><div className="settings-layout"><nav className="settings-nav">{([{ id: "agency", icon: Settings, label: "대리점 기본 설정" }, { id: "members", icon: UserCog, label: "조직 및 담당자 권한" }, { id: "shipper", icon: Building2, label: "화주 조직 관리" }, { id: "documents", icon: FilePenLine, label: "문서·직인 정책" }, { id: "display", icon: SlidersHorizontal, label: "화면·세션 설정" }] as const).map(item => <button key={item.id} onClick={() => setTab(item.id)} className={tab === item.id ? "settings-active" : ""}><item.icon />{item.label}<ChevronDown /></button>)}</nav><section className="settings-content">{tab === "agency" && <><div className="settings-heading"><Settings /><div><h2>대리점 기본 정보</h2><p>화주에게 표시되는 운영 주체와 기본 공지 정보를 관리합니다.</p></div></div><div className="settings-form-grid"><label>대리점명 <Input defaultValue={settingsProfile.data?.organizationName || ""} /></label><label>본사 택배사(계약 택배사) <select value={courierDraft} onChange={event => setCourierDraft(event.target.value)}><option value="">택배사 선택</option>{COURIERS.map(item => <option key={item} value={item}>{item}</option>)}</select></label><label>대표 운영 이메일 <Input defaultValue="operation@seoulcentral.co.kr" /></label><label>대표 연락처 <Input defaultValue="02-3278-2100" /></label><label>CS 응답 기준 <select defaultValue="30"><option value="30">30분 이내</option><option value="60">1시간 이내</option><option value="120">2시간 이내</option></select></label></div><div className="settings-notice"><Bell /><div><strong>화주 공지 발송 권한</strong><span>운영 리더와 초대 권한 보유자만 발송 최종 확인 화면을 진행할 수 있습니다.</span></div><BadgeCheck /></div></>}{tab === "members" && <><div className="settings-heading"><UserCog /><div><h2>대리점·화주 담당자 권한</h2><p>조직별로 여러 담당자를 등록하고, 업무 범위에 맞는 최소 권한을 부여합니다.</p></div><div className="ml-auto flex gap-2"><Button variant="outline" onClick={() => window.location.assign("/staff-invite?role=shipper")}>화주 담당자 초대</Button><Button onClick={() => window.location.assign(`/staff-invite?role=agency&organization=${encodeURIComponent(settingsProfile.data?.organizationName || "")}`)} className="bg-[#0e9f95] hover:bg-[#0b887f]"><Plus />대리점 담당자 추가</Button></div></div><div className="permission-table">{members.map(member => <article key={`${member.organization}-${member.name}`}><div className="permission-person"><span>{member.initial}</span><div><strong>{member.name}</strong><small>{member.role} · {member.organization}</small></div></div><div className="permission-chips">{(["전체 관리", "티켓 관리", "보상 검토", "화주 관리", "보고서 열람", "설정 관리"] as Permission[]).map(permission => <button key={permission} className={member.permissions.includes(permission) ? "permission-on" : ""} onClick={() => { togglePermission(member.name, permission); toast(`${member.name}의 ${permission} 권한을 변경했습니다.`); }}><Check />{permission}</button>)}</div><button className="more-member" onClick={() => toast(`${member.name}의 상세 권한 설정을 엽니다.`)}><MoreHorizontal /></button></article>)}</div></>}{tab === "shipper" && <><div className="settings-heading"><Building2 /><div><h2>화주 조직 연결 관리</h2><p>초대 링크로 가입한 화주의 소속과 담당자 수신 정책을 관리합니다.</p></div></div><div className="org-directory empty-state"><Building2 /><h2>연결된 화주 조직이 없습니다.</h2><p>화주가 초대 링크로 가입하면 이곳에 소속과 담당자 수신 정책이 표시됩니다.</p></div></>}{tab === "documents" && <><div className="settings-heading"><FilePenLine /><div><h2>문서 및 직인 사용 정책</h2><p>보상 합의서 등 지정 문서에 적용할 화주 등록 직인과 기록 방식을 관리합니다.</p></div></div><div className="document-policy"><section><div className="policy-icon"><Stamp /></div><div><strong>화주 등록 직인 사용</strong><small>보상 합의서 미리보기에서 자동 적용을 허용합니다.</small></div><button className="policy-switch policy-switch-on" onClick={() => toast("직인 자동 적용 정책은 현재 활성 상태입니다.")}><i /></button></section><section><div className="policy-icon"><History /></div><div><strong>직인 사용 이력 기록</strong><small>문서 생성, 직인 적용, 다운로드 기록을 보관합니다.</small></div><button className="policy-switch policy-switch-on" onClick={() => toast("문서 이력 기록은 현재 활성 상태입니다.")}><i /></button></section><section><div className="policy-icon"><KeyRound /></div><div><strong>직인 적용 권한</strong><small>사고 보상 담당 및 대리점 운영 리더만 실행할 수 있습니다.</small></div><button onClick={() => toast("직인 적용 권한 설정을 엽니다.")} className="policy-link">권한 보기 <ArrowDownRight /></button></section></div><div className="policy-alert"><LockKeyhole /><p><strong>직인은 민감 문서 자산으로 관리됩니다.</strong><span>이 화면의 자동 날인은 내부 운영 미리보기이며, 실제 문서 발행·보관 환경에서는 조직별 접근 제어와 저장 정책을 적용해야 합니다.</span></p></div></>}{tab === "display" && (<div className="grid gap-4"><FontScaleSettings /><SessionSecurityCard /></div>)}</section></div></div>;
+}
+
+
+export default function Home() {
+  return (
+    <>
+      <SessionMonitor />
+      <HomeInner />
+    </>
+  );
 }

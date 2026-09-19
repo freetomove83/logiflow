@@ -231,6 +231,18 @@ class SDKServer {
     }
   }
 
+  /** Epoch-ms expiry of a session JWT. 0 = invalid/expired, null = no cookie. */
+  async getSessionExpiry(cookieValue: string | undefined | null): Promise<number | null> {
+    if (!cookieValue) return null;
+    try {
+      const secretKey = this.getSessionSecret();
+      const { payload } = await jwtVerify(cookieValue, secretKey, { algorithms: ["HS256"] });
+      return typeof payload.exp === "number" ? payload.exp * 1000 : null;
+    } catch {
+      return 0;
+    }
+  }
+
   async getUserInfoWithJwt(
     jwtToken: string
   ): Promise<GetUserInfoWithJwtResponse> {

@@ -1,4 +1,4 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, SESSION_TTL_MS } from "@shared/const";
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -33,6 +33,15 @@ const agencyPermissionKeys = ["tickets.manage", "compensation.review", "shippers
 type AgencyPermissionKey = typeof agencyPermissionKeys[number];
 const agencyPermissionSchema = z.enum(agencyPermissionKeys);
 const allAgencyPermissions: AgencyPermissionKey[] = [...agencyPermissionKeys];
+
+const readSessionCookie = (req: { headers?: { cookie?: string } }): string | null => {
+  const raw = req.headers?.cookie ?? "";
+  for (const part of raw.split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === COOKIE_NAME) return decodeURIComponent(rest.join("="));
+  }
+  return null;
+};
 
 const ticketTypes = ["파손/분실", "배송지연", "오배송", "주소변경", "미수령 확인요청", "배송문의", "기타"] as const;
 const ticketStatuses = ["접수", "확인 중", "보상 접수 요청", "보상 검토", "보상 확정", "처리 완료"] as const;
@@ -163,8 +172,8 @@ export const appRouter = router({
       }
       if (input.staffInviteToken) await claimStaffInvite(input.staffInviteToken);
 
-      const sessionToken = await sdk.createSessionToken(openId, { name: input.contactName });
-      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...getSessionCookieOptions(ctx.req), maxAge: 1000 * 60 * 60 * 24 * 30 });
+      const sessionToken = await sdk.createSessionToken(openId, { name: input.contactName, expiresInMs: SESSION_TTL_MS });
+      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...getSessionCookieOptions(ctx.req), maxAge: SESSION_TTL_MS });
       return { success: true, organizationType: input.organizationType, loginId: input.loginId } as const;
     }),
     loginCredential: publicProcedure.input(z.object({
@@ -175,8 +184,8 @@ export const appRouter = router({
       if (!account || !(await verifyPassword(input.password, account.passwordHash))) {
         throw new TRPCError({ code: "UNAUTHORIZED", message: "아이디 또는 비밀번호를 다시 확인해 주세요." });
       }
-      const sessionToken = await sdk.createSessionToken(`credential:${account.loginId}`, { name: account.contactName });
-      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...getSessionCookieOptions(ctx.req), maxAge: 1000 * 60 * 60 * 24 * 30 });
+      const sessionToken = await sdk.createSessionToken(`credential:${account.loginId}`, { name: account.contactName, expiresInMs: SESSION_TTL_MS });
+      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...getSessionCookieOptions(ctx.req), maxAge: SESSION_TTL_MS });
       return { success: true, organizationType: account.organizationType, organizationName: account.organizationName, contactName: account.contactName } as const;
     }),
     lookupCredential: publicProcedure.input(z.object({
@@ -188,6 +197,15 @@ export const appRouter = router({
       const loginId = account.loginId;
       const maskedLoginId = loginId.length <= 4 ? `${loginId.slice(0, 1)}***` : `${loginId.slice(0, 3)}${"*".repeat(Math.max(2, loginId.length - 5))}${loginId.slice(-2)}`;
       return { organizationName: account.organizationName, maskedLoginId, organizationType: account.organizationType } as const;
+    }),
+    sessionState: protectedProcedure.query(async ({ ctx }) => {
+      const expiresAt = await sdk.getSessionExpiry(readSessionCookie(ctx.req));
+      return { ttlMinutes: SESSION_TTL_MS / 60000, expiresAt } as const;
+    }),
+    extendSession: protectedProcedure.mutation(async ({ ctx }) => {
+      const sessionToken = await sdk.createSessionToken(ctx.user.openId, { name: ctx.user.name ?? "", expiresInMs: SESSION_TTL_MS });
+      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...getSessionCookieOptions(ctx.req), maxAge: SESSION_TTL_MS });
+      return { success: true, expiresAt: Date.now() + SESSION_TTL_MS } as const;
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);

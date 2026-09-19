@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, updateCredentialAccountCourier, upsertShipperSettlementProfile, upsertUser, deleteShipperWithInvite } from "./db";
+import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, deleteShipperSettlementProfile, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, updateCredentialAccountCourier, upsertShipperSettlementProfile, upsertUser, deleteShipperWithInvite } from "./db";
 import { hashPassword, verifyPassword } from "./credentials";
 import { evidenceCategories, safeEvidenceFileName, validateEvidenceUpload } from "./evidence";
 import { validateSealUpload } from "./seal";
@@ -312,8 +312,12 @@ export const appRouter = router({
       accountHolder: z.string().trim().min(2).max(100),
       accountNumber: z.string().regex(/^\d{8,30}$/, "정산 계좌번호는 숫자 8~30자리로 입력해 주세요."),
     })).mutation(async ({ ctx, input }) => {
-      await upsertShipperSettlementProfile({ userId: ctx.user.id, bank: input.bank, accountHolder: input.accountHolder, encryptedAccountNumber: encryptSensitiveValue(input.accountNumber), accountLast4: input.accountNumber.slice(-4), status: "submitted" });
+      await upsertShipperSettlementProfile({ userId: ctx.user.id, bank: input.bank, accountHolder: input.accountHolder, encryptedAccountNumber: encryptSensitiveValue(input.accountNumber), accountLast4: input.accountNumber.slice(-4), status: "registered" });
       return { success: true, accountLast4: input.accountNumber.slice(-4) } as const;
+    }),
+    deleteSettlement: shipperProcedure.mutation(async ({ ctx }) => {
+      await deleteShipperSettlementProfile(ctx.user.id);
+      return { success: true } as const;
     }),
     recordSealEvent: protectedProcedure.input(z.object({ shipperUserId: z.number().int().positive(), documentRef: z.string().trim().min(4).max(96), eventType: z.enum(["applied", "finalized"]) })).mutation(async ({ ctx, input }) => {
       if (!await canManageShipperDocument(ctx.user.id, ctx.user.role, input.shipperUserId)) {
@@ -341,7 +345,8 @@ export const appRouter = router({
       const claimedInvite = await getClaimedShipperInviteByUserId(ctx.user.id);
       const agencyAccount = claimedInvite ? await getCredentialAccountByUserId(claimedInvite.agencyUserId) : null;
       return {
-        pendingSettlement: !settlement || settlement.status !== "verified",
+        pendingSettlement: !settlement,
+        settlement: settlement ? { bank: settlement.bank, accountHolder: settlement.accountHolder, accountLast4: settlement.accountLast4, updatedAt: settlement.updatedAt } : null,
         pendingSignatureDocuments: Array.from(applied).filter(documentRef => !finalized.has(documentRef)),
         finalizedDocuments,
         downloadEvents: downloads.map(event => ({ documentRef: event.documentRef, createdAt: event.createdAt })),

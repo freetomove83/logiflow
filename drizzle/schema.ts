@@ -9,7 +9,7 @@ export const organizationTypeEnum = pgEnum("organization_type", ["agency", "ship
 export const accountRoleEnum = pgEnum("account_role", ["owner", "member"]);
 export const inviteStatusEnum = pgEnum("invite_status", ["active", "claimed", "expired"]);
 export const evidenceCategoryEnum = pgEnum("evidence_category", ["damage_photo", "damage_video", "price_proof"]);
-export const settlementStatusEnum = pgEnum("settlement_status", ["submitted", "verified"]);
+export const settlementStatusEnum = pgEnum("settlement_status", ["submitted", "verified", "registered"]);
 export const sealEventTypeEnum = pgEnum("seal_event_type", ["applied", "finalized"]);
 
 export const users = pgTable("users", {
@@ -142,7 +142,7 @@ export const shipperSettlementProfiles = pgTable("shipper_settlement_profiles", 
   accountHolder: varchar("accountHolder", { length: 100 }).notNull(),
   encryptedAccountNumber: text("encryptedAccountNumber").notNull(),
   accountLast4: varchar("accountLast4", { length: 4 }).notNull(),
-  status: settlementStatusEnum("status").default("submitted").notNull(),
+  status: settlementStatusEnum("status").default("registered").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });

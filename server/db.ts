@@ -229,7 +229,7 @@ export async function upsertShipperSettlementProfile(profile: InsertShipperSettl
   if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
   await db.insert(shipperSettlementProfiles).values(profile).onConflictDoUpdate({
     target: shipperSettlementProfiles.userId,
-    set: { bank: profile.bank, accountHolder: profile.accountHolder, encryptedAccountNumber: profile.encryptedAccountNumber, accountLast4: profile.accountLast4, status: "submitted", updatedAt: new Date() },
+    set: { bank: profile.bank, accountHolder: profile.accountHolder, encryptedAccountNumber: profile.encryptedAccountNumber, accountLast4: profile.accountLast4, status: "registered", updatedAt: new Date() },
   });
 }
 
@@ -238,6 +238,12 @@ export async function getShipperSettlementProfileByUserId(userId: number) {
   if (!db) return undefined;
   const result = await db.select().from(shipperSettlementProfiles).where(eq(shipperSettlementProfiles.userId, userId)).limit(1);
   return result[0];
+}
+
+export async function deleteShipperSettlementProfile(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  await db.delete(shipperSettlementProfiles).where(eq(shipperSettlementProfiles.userId, userId));
 }
 
 export async function createDocumentSealEvent(event: InsertDocumentSealEvent) {

@@ -27,6 +27,7 @@ import {
   FileSpreadsheet,
   FilePenLine,
   FileText,
+  BellRing,
   FileVideo,
   Headphones,
   History,
@@ -76,11 +77,17 @@ type Role = "agency" | "shipper";
 type View = "tickets" | "risk" | "sla" | "shippers" | "history" | "reports" | "settings";
 
 type TicketType = "파손/분실" | "배송지연" | "오배송" | "주소변경" | "미수령 확인요청" | "배송문의" | "기타";
-type TicketStatus = "접수" | "보상 접수 요청" | "보상 검토" | "보상 확정" | "처리 완료";
+type TicketStatus = "접수" | "확인 중" | "보상 접수 요청" | "보상 검토" | "보상 확정" | "처리 완료";
 type CsTicket = {
   code: string;
   type: TicketType;
   status: TicketStatus;
+  checkDetail: CheckDetail | null;
+  isIssue: boolean;
+  issueNote: string;
+  feedbackAt: Date | string | null;
+  feedbackSeenAt: Date | string | null;
+  events: { id: number; actorRole: "shipper" | "agency"; actorName: string; action: string; createdAt: Date | string }[];
   shipperName: string;
   trackingNumber: string;
   recipient: string;
@@ -96,12 +103,39 @@ type CsTicket = {
 
 const ticketStatusStyles: Record<TicketStatus, string> = {
   접수: "bg-[#eef2ff] text-[#5264a7] border-[#dce2fb]",
+  "확인 중": "bg-[#e7f6f2] text-[#0b7d72] border-[#cbe9e3]",
   "보상 접수 요청": "bg-[#fff7df] text-[#a16b07] border-[#f2e1aa]",
   "보상 검토": "bg-[#fff7df] text-[#a16b07] border-[#f2e1aa]",
   "보상 확정": "bg-[#eaf6f4] text-[#087970] border-[#cbe9e3]",
   "처리 완료": "bg-[#f0f3ef] text-[#5d7264] border-[#dde5dc]",
 };
 const ticketTypeOptions: TicketType[] = ["파손/분실", "배송지연", "오배송", "주소변경", "미수령 확인요청", "배송문의", "기타"];
+type CheckDetail = "대리점 확인중" | "기사 확인중";
+
+const isUnreadTicket = (ticket: CsTicket) => Boolean(ticket.feedbackAt && (!ticket.feedbackSeenAt || new Date(ticket.feedbackAt) > new Date(ticket.feedbackSeenAt)));
+
+function CsTicketHistory({ ticket }: { ticket: CsTicket }) {
+  return (
+    <aside className="cs-ticket-history" aria-label={`${ticket.code} 처리 히스토리`}>
+      <p className="cs-history-title">HISTORY</p>
+      {ticket.events.length === 0 ? (
+        <p className="cs-history-empty">아직 기록이 없습니다.</p>
+      ) : (
+        <ol>
+          {ticket.events.map(event => (
+            <li key={event.id}>
+              <span className={`cs-history-dot ${event.actorRole}`} />
+              <div>
+                <p>{event.action}</p>
+                <small>{event.actorName || (event.actorRole === "shipper" ? "화주" : "대리점")} · {new Date(event.createdAt).toLocaleString("ko-KR")}</small>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </aside>
+  );
+}
 
 type EvidenceCategory = "damage_photo" | "damage_video" | "price_proof" | "compensation_proof";
 type UploadStatus = "ready" | "uploading" | "success" | "error";
@@ -802,6 +836,13 @@ function TicketsView() {
     },
     onError: error => toast.error(error.message),
   });
+  const csBulk = trpc.cs.bulkConfirm.useMutation({
+    onSuccess: async (_data, variables) => {
+      await utils.cs.list.invalidate();
+      toast.success(`선택한 ${variables.codes.length}건을 확인 중(${variables.checkDetail})으로 변경했습니다.`);
+    },
+    onError: error => toast.error(error.message),
+  });
   const csCreate = trpc.cs.create.useMutation({
     onSuccess: async () => {
       await utils.cs.list.invalidate();
@@ -810,6 +851,11 @@ function TicketsView() {
     onError: error => toast.error(error.message),
   });
   const rows = csList.data ?? [];
+  const todayKey = new Date().toDateString();
+  const todayCount = rows.filter(ticket => new Date(ticket.createdAt).toDateString() === todayKey).length;
+  const checkingRows = rows.filter(ticket => ticket.status === "확인 중");
+  const issueRows = rows.filter(ticket => ticket.isIssue && ticket.status !== "처리 완료");
+  const doneCount = rows.filter(ticket => ticket.status === "처리 완료").length;
   const claimedShippers = (history.data ?? []).filter(item => item.inviteStatus === "claimed" && item.ownerUserId);
   const [createOpen, setCreateOpen] = useState(false);
   const [formType, setFormType] = useState<TicketType>("파손/분실");
@@ -817,24 +863,47 @@ function TicketsView() {
   const [formNote, setFormNote] = useState("");
   const [formShipper, setFormShipper] = useState("");
   const [typeEdits, setTypeEdits] = useState<Record<string, TicketType>>({});
+  const [checkEdits, setCheckEdits] = useState<Record<string, CheckDetail>>({});
+  const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
+  const [bulkDetail, setBulkDetail] = useState<CheckDetail>("대리점 확인중");
+  const [issueEditCode, setIssueEditCode] = useState<string | null>(null);
+  const [issueEditText, setIssueEditText] = useState("");
+  const toggleSelect = (code: string) => setSelectedCodes(current => current.includes(code) ? current.filter(item => item !== code) : [...current, code]);
   return (
     <div className="page-enter flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
       <div className="content-title-row">
         <div>
           <p className="eyebrow">CS TICKETS · LIVE DATA</p>
           <h1>CS 처리 현황</h1>
-          <p className="subtitle">화주 접수와 대리점 접수를 포함한 실제 CS 티켓을 한 곳에서 처리합니다.</p>
+          <p className="subtitle">전체 화주가 접수한 CS와 대리점 접수 CS를 한 곳에서 처리합니다.</p>
         </div>
         <Button className="bg-[#0e9f95] hover:bg-[#0b887f]" onClick={() => setCreateOpen(true)}>
           <Plus className="mr-1.5 h-4 w-4" />
           화주 CS 접수
         </Button>
       </div>
+      <div className="cs-stat-grid">
+        <div className="cs-stat navy"><p>금일 접수 CS</p><strong>{todayCount}<span>건</span></strong><small>전체 화주 접수 기준 · 실시간</small></div>
+        <div className="cs-stat mint"><p>확인 중</p><strong>{checkingRows.length}<span>건</span></strong><small>대리점 확인중 {checkingRows.filter(t => t.checkDetail === "대리점 확인중").length} · 기사 확인중 {checkingRows.filter(t => t.checkDetail === "기사 확인중").length}</small></div>
+        <div className="cs-stat orange"><p>이슈건</p><strong>{issueRows.length}<span>건</span></strong><small>확인·판단이 지연된 건</small></div>
+        <div className="cs-stat steel"><p>처리 완료</p><strong>{doneCount}<span>건</span></strong><small>누적 기준</small></div>
+      </div>
       <section className="data-card mt-5">
         <div className="data-card-head">
-          <div><p className="panel-kicker">TICKET BOARD · {rows.length}</p><h2>실시간 CS 티켓</h2></div>
+          <div><p className="panel-kicker">TICKET BOARD · 전체 {rows.length}건 · 금일 {todayCount}건</p><h2>실시간 CS 티켓</h2></div>
           <Badge className="bg-[#edf7f5] text-[#197a70]">실시간 조회</Badge>
         </div>
+        {selectedCodes.length > 0 && (
+          <div className="cs-bulk-bar">
+            <strong>선택 {selectedCodes.length}건</strong>
+            <select value={bulkDetail} onChange={event => setBulkDetail(event.target.value as CheckDetail)}>
+              <option value="대리점 확인중">대리점 확인중</option>
+              <option value="기사 확인중">기사 확인중</option>
+            </select>
+            <button className="cs-action teal" onClick={() => csBulk.mutate({ codes: selectedCodes, checkDetail: bulkDetail }, { onSuccess: () => setSelectedCodes([]) })}>일괄 확인 중 변경</button>
+            <button className="cs-action" onClick={() => setSelectedCodes([])}>선택 해제</button>
+          </div>
+        )}
         {csList.isLoading ? (
           <p className="p-8 text-center text-sm text-[#637287]">CS 티켓을 불러오는 중입니다.</p>
         ) : rows.length === 0 ? (
@@ -847,17 +916,24 @@ function TicketsView() {
           <div className="cs-ticket-list">
             {rows.map(ticket => {
               const pendingType = typeEdits[ticket.code] ?? ticket.type;
+              const pendingCheck = checkEdits[ticket.code] ?? ticket.checkDetail ?? "대리점 확인중";
               return (
-                <article className="cs-ticket-card" key={ticket.code}>
+                <article className={`cs-ticket-card${ticket.isIssue ? " is-issue" : ""}`} key={ticket.code}>
+                  <label className="cs-ticket-check">
+                    <input type="checkbox" checked={selectedCodes.includes(ticket.code)} onChange={() => toggleSelect(ticket.code)} aria-label={`${ticket.code} 선택`} />
+                  </label>
                   <div className="cs-ticket-main">
                     <div className="flex flex-wrap items-center gap-2">
                       <strong>{ticket.code}</strong>
                       <TicketTag type={ticket.type} />
                       <Badge className={ticketStatusStyles[ticket.status]}>{ticket.status}</Badge>
+                      {ticket.status === "확인 중" && ticket.checkDetail && <Badge className="bg-[#eef2f8] text-[#33527a] border-[#dbe4ec]">{ticket.checkDetail}</Badge>}
+                      {ticket.isIssue && <Badge className="bg-[#f9eded] text-[#b04a4a] border-[#efd7d7]">이슈건</Badge>}
                       <small>{ticket.createdByRole === "shipper" ? "화주 접수" : "대리점 접수"} · {new Date(ticket.createdAt).toLocaleString("ko-KR")}</small>
                     </div>
                     <p className="cs-ticket-note">{ticket.note}</p>
                     <small>{ticket.shipperName} · 송장 {ticket.trackingNumber}{ticket.result ? ` · 처리결과: ${ticket.result}` : ""}</small>
+                    {ticket.isIssue && <p className="cs-issue-note">이슈건으로 관리 중입니다. 확인되는 대로 업데이트하겠습니다.{ticket.issueNote ? ` · 사유: ${ticket.issueNote}` : ""}</p>}
                     {ticket.evidence.length > 0 && (
                       <div className="cs-ticket-evidence">
                         {ticket.evidence.map((ev, index) => (
@@ -867,9 +943,30 @@ function TicketsView() {
                     )}
                   </div>
                   <div className="cs-ticket-actions">
-                    {ticket.status === "접수" && <button className="cs-action amber" onClick={() => { if (window.confirm(`${ticket.code} 티켓을 보상 접수 요청 상태로 전환합니다. 화주가 보상 증빙을 등록하면 보상 검토로 이동합니다.`)) csUpdate.mutate({ ticketCode: ticket.code, status: "보상 접수 요청" }); }}>보상 접수 요청</button>}
+                    {(ticket.status === "접수" || ticket.status === "확인 중") && <button className="cs-action" onClick={() => csUpdate.mutate({ ticketCode: ticket.code, status: "확인 중", checkDetail: ticket.checkDetail ?? "대리점 확인중" })}>확인 중 전환</button>}
+                    {(ticket.status === "접수" || ticket.status === "확인 중") && <button className="cs-action amber" onClick={() => { if (window.confirm(`${ticket.code} 티켓을 보상 접수 요청 상태로 전환합니다. 화주가 보상 증빙을 등록하면 보상 검토로 이동합니다.`)) csUpdate.mutate({ ticketCode: ticket.code, status: "보상 접수 요청" }); }}>보상 접수 요청</button>}
                     {ticket.status === "보상 검토" && <button className="cs-action teal" onClick={() => { if (window.confirm(`${ticket.code} 티켓을 보상 확정 처리합니다.`)) csUpdate.mutate({ ticketCode: ticket.code, status: "보상 확정" }); }}>보상 확정</button>}
                     {ticket.status !== "처리 완료" && <button className="cs-action" onClick={() => { if (window.confirm(`${ticket.code} 티켓을 처리 완료로 종결합니다.`)) csUpdate.mutate({ ticketCode: ticket.code, status: "처리 완료" }); }}>처리 완료</button>}
+                    {ticket.status !== "처리 완료" && (ticket.isIssue ? (
+                      <button className="cs-action danger" onClick={() => { if (window.confirm(`${ticket.code} 티켓을 이슈건에서 해제합니다.`)) csUpdate.mutate({ ticketCode: ticket.code, isIssue: false }); }}>이슈건 해제</button>
+                    ) : issueEditCode === ticket.code ? (
+                      <div className="cs-issue-edit">
+                        <input value={issueEditText} onChange={event => setIssueEditText(event.target.value)} placeholder="이슈 사유 입력" autoFocus />
+                        <button className="cs-action amber" onClick={() => { if (issueEditText.trim().length < 2) return toast.error("이슈 사유를 2자 이상 입력해 주세요."); csUpdate.mutate({ ticketCode: ticket.code, isIssue: true, issueNote: issueEditText.trim() }, { onSuccess: () => { setIssueEditCode(null); setIssueEditText(""); } }); }}>등록</button>
+                        <button className="cs-action" onClick={() => { setIssueEditCode(null); setIssueEditText(""); }}>취소</button>
+                      </div>
+                    ) : (
+                      <button className="cs-action danger" onClick={() => { setIssueEditCode(ticket.code); setIssueEditText(""); }}>이슈건 등록</button>
+                    ))}
+                    {ticket.status === "확인 중" && (
+                      <div className="cs-type-change">
+                        <select value={pendingCheck} onChange={event => setCheckEdits(current => ({ ...current, [ticket.code]: event.target.value as CheckDetail }))}>
+                          <option value="대리점 확인중">대리점 확인중</option>
+                          <option value="기사 확인중">기사 확인중</option>
+                        </select>
+                        <button disabled={pendingCheck === ticket.checkDetail} onClick={() => { csUpdate.mutate({ ticketCode: ticket.code, checkDetail: pendingCheck }); setCheckEdits(current => { const next = { ...current }; delete next[ticket.code]; return next; }); }}>확인 주체 변경</button>
+                      </div>
+                    )}
                     <div className="cs-type-change">
                       <select value={pendingType} onChange={event => setTypeEdits(current => ({ ...current, [ticket.code]: event.target.value as TicketType }))}>
                         {ticketTypeOptions.map(option => <option key={option}>{option}</option>)}
@@ -877,6 +974,7 @@ function TicketsView() {
                       <button disabled={pendingType === ticket.type} onClick={() => { csUpdate.mutate({ ticketCode: ticket.code, type: pendingType }); setTypeEdits(current => { const next = { ...current }; delete next[ticket.code]; return next; }); }}>유형 변경</button>
                     </div>
                   </div>
+                  <CsTicketHistory ticket={ticket} />
                 </article>
               );
             })}
@@ -1071,11 +1169,18 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
   const csCreate = trpc.cs.create.useMutation();
   const csSubmitReview = trpc.cs.submitForReview.useMutation();
   const csUtils = trpc.useUtils();
+  const csMarkSeen = trpc.cs.markFeedbackSeen.useMutation({
+    onSuccess: async () => {
+      await csUtils.cs.list.invalidate();
+      toast.success("CS 피드백을 모두 확인 처리했습니다.");
+    },
+  });
   const csList = trpc.cs.list.useQuery(undefined, { retry: false });
   const shipperTickets = (csList.data ?? []).filter(ticket =>
     `${ticket.trackingNumber}${ticket.recipient}`.includes(search)
   );
   const completedTickets = shipperTickets.filter(ticket => ticket.status === "처리 완료");
+  const unreadFeedbackCount = (csList.data ?? []).filter(isUnreadTicket).length;
   const [compensationProofs, setCompensationProofs] = useState<EvidenceFile[]>([]);
   const [compensationTarget, setCompensationTarget] = useState("");
   const compensationInputRef = useRef<HTMLInputElement>(null);
@@ -1234,9 +1339,13 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
           <strong>{ticket.code}</strong>
           <TicketTag type={ticket.type} />
           <Badge className={ticketStatusStyles[ticket.status]}>{ticket.status}</Badge>
+          {ticket.status === "확인 중" && ticket.checkDetail && <Badge className="bg-[#eef2f8] text-[#33527a] border-[#dbe4ec]">{ticket.checkDetail}</Badge>}
+          {ticket.isIssue && <Badge className="bg-[#f9eded] text-[#b04a4a] border-[#efd7d7]">이슈건</Badge>}
+          {isUnreadTicket(ticket) && <Badge className="bg-[#fdeef0] text-[#c0455a] border-[#f4d3d8]">새 피드백</Badge>}
           <small>{ticket.createdByRole === "shipper" ? "내가 접수" : "대리점 접수"} · {new Date(ticket.createdAt).toLocaleString("ko-KR")}</small>
         </div>
         <p className="cs-ticket-note">{ticket.note}</p>
+        {ticket.isIssue && <p className="cs-issue-note">대리점에서 확인 중입니다. 확인되는 대로 업데이트해 드리겠습니다.{ticket.issueNote ? ` · 사유: ${ticket.issueNote}` : ""}</p>}
         <small>송장 {ticket.trackingNumber}{ticket.result ? ` · 처리결과: ${ticket.result}` : ""}</small>
         {ticket.evidence.length > 0 && (
           <div className="cs-ticket-evidence">
@@ -1309,6 +1418,7 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
           </div>
         )}
       </div>
+      <CsTicketHistory ticket={ticket} />
       {ticket.status === "보상 접수 요청" && compensationTarget !== ticket.code && (
         <div className="cs-ticket-actions">
           <button className="cs-action amber" onClick={() => setCompensationTarget(ticket.code)}>보상 증빙 등록</button>
@@ -1346,6 +1456,17 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
             </p>
           </div>
           <div className="portal-actions">
+            <Button
+              variant={unreadFeedbackCount > 0 ? "default" : "outline"}
+              className={unreadFeedbackCount > 0 ? "cs-feedback-alert" : "cs-feedback-clear"}
+              onClick={() => {
+                if (unreadFeedbackCount === 0) { toast("확인하지 않은 CS 피드백이 없습니다."); return; }
+                csMarkSeen.mutate({ all: true });
+              }}
+            >
+              <BellRing className="mr-1.5 h-4 w-4" />
+              확인 안된 CS 피드백 {unreadFeedbackCount}건
+            </Button>
             <Button
               onClick={() => setShowForm(true)}
               className="bg-[#0e9f95] hover:bg-[#0b887f]"

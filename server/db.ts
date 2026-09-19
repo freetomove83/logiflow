@@ -1,7 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { accountPermissions, credentialAccounts, CsTicketRow, csTickets, documentDownloadEvents, documentSealEvents, InsertAccountPermission, InsertCredentialAccount, InsertCsTicket, InsertDocumentDownloadEvent, InsertDocumentSealEvent, InsertShipperInvite, ShipperInvite, InsertShipperSeal, InsertShipperSettlementProfile, InsertStaffInvite, InsertTicketEvidence, InsertUser, shipperInvites, shipperContacts, shipperSeals, shipperSettlementProfiles, staffInvites, ticketEvidence, users } from "../drizzle/schema";
+import { accountPermissions, credentialAccounts, CsTicketEventRow, CsTicketRow, csTicketEvents, csTickets, documentDownloadEvents, documentSealEvents, InsertAccountPermission, InsertCredentialAccount, InsertCsTicket, InsertCsTicketEvent, InsertDocumentDownloadEvent, InsertDocumentSealEvent, InsertShipperInvite, ShipperInvite, InsertShipperSeal, InsertShipperSettlementProfile, InsertStaffInvite, InsertTicketEvidence, InsertUser, shipperInvites, shipperContacts, shipperSeals, shipperSettlementProfiles, staffInvites, ticketEvidence, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -271,13 +271,17 @@ export async function getCsTicketsByAgencyUser(userId: number) {
   return db.select().from(csTickets).where(eq(csTickets.agencyUserId, userId)).orderBy(csTickets.id);
 }
 
-export async function updateCsTicketByAgency(code: string, agencyUserId: number, patch: { type?: CsTicketRow["type"]; status?: CsTicketRow["status"]; result?: string }) {
+export async function updateCsTicketByAgency(code: string, agencyUserId: number, patch: { type?: CsTicketRow["type"]; status?: CsTicketRow["status"]; result?: string; checkDetail?: CsTicketRow["checkDetail"]; isIssue?: boolean; issueNote?: string; touchFeedback?: boolean }) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
   const set: Partial<InsertCsTicket> = { updatedAt: new Date() };
   if (patch.type) set.type = patch.type;
   if (patch.status) set.status = patch.status;
   if (typeof patch.result === "string") set.result = patch.result;
+  if (patch.checkDetail) set.checkDetail = patch.checkDetail;
+  if (typeof patch.isIssue === "boolean") set.isIssue = patch.isIssue;
+  if (typeof patch.issueNote === "string") set.issueNote = patch.issueNote;
+  if (patch.touchFeedback) set.feedbackAt = new Date();
   const result = await db.update(csTickets).set(set).where(and(eq(csTickets.ticketCode, code), eq(csTickets.agencyUserId, agencyUserId))).returning();
   return result[0];
 }
@@ -289,6 +293,30 @@ export async function updateCsTicketByShipper(code: string, shipperUserId: numbe
   if (patch.status) set.status = patch.status;
   const result = await db.update(csTickets).set(set).where(and(eq(csTickets.ticketCode, code), eq(csTickets.shipperUserId, shipperUserId))).returning();
   return result[0];
+}
+
+export async function createCsTicketEvent(event: InsertCsTicketEvent) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  await db.insert(csTicketEvents).values(event);
+}
+
+export async function getCsTicketEventsByTicketCodes(codes: string[]) {
+  const db = await getDb();
+  if (!db || codes.length === 0) return [];
+  return db.select().from(csTicketEvents).where(inArray(csTicketEvents.ticketCode, codes)).orderBy(csTicketEvents.id);
+}
+
+export async function markShipperFeedbackSeen(code: string, shipperUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  await db.update(csTickets).set({ feedbackSeenAt: new Date() }).where(and(eq(csTickets.ticketCode, code), eq(csTickets.shipperUserId, shipperUserId)));
+}
+
+export async function markAllShipperFeedbackSeen(shipperUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  await db.update(csTickets).set({ feedbackSeenAt: new Date() }).where(eq(csTickets.shipperUserId, shipperUserId));
 }
 
 export async function getTicketEvidenceByRequestRef(requestRef: string) {

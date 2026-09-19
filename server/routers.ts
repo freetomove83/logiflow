@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createCsTicket, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, deleteShipperSettlementProfile, getCsTicketByCode, getCsTicketsByAgencyUser, getCsTicketsByShipperUser, getShipperSettlementProfileByUserId, getStaffInviteByToken, getTicketEvidenceByRequestRef, updateCsTicketByAgency, updateCsTicketByShipper, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, updateCredentialAccountCourier, upsertShipperSettlementProfile, upsertUser, deleteShipperWithInvite } from "./db";
+import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createCsTicket, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, deleteShipperSettlementProfile, getCsTicketByCode, createCsTicketEvent, getCsTicketEventsByTicketCodes, markAllShipperFeedbackSeen, markShipperFeedbackSeen, getCsTicketsByAgencyUser, getCsTicketsByShipperUser, getShipperSettlementProfileByUserId, getStaffInviteByToken, getTicketEvidenceByRequestRef, updateCsTicketByAgency, updateCsTicketByShipper, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, updateCredentialAccountCourier, upsertShipperSettlementProfile, upsertUser, deleteShipperWithInvite } from "./db";
 import { hashPassword, verifyPassword } from "./credentials";
 import { evidenceCategories, safeEvidenceFileName, validateEvidenceUpload } from "./evidence";
 import { validateSealUpload } from "./seal";
@@ -35,7 +35,8 @@ const agencyPermissionSchema = z.enum(agencyPermissionKeys);
 const allAgencyPermissions: AgencyPermissionKey[] = [...agencyPermissionKeys];
 
 const ticketTypes = ["파손/분실", "배송지연", "오배송", "주소변경", "미수령 확인요청", "배송문의", "기타"] as const;
-const ticketStatuses = ["접수", "보상 접수 요청", "보상 검토", "보상 확정", "처리 완료"] as const;
+const ticketStatuses = ["접수", "확인 중", "보상 접수 요청", "보상 검토", "보상 확정", "처리 완료"] as const;
+const checkDetails = ["대리점 확인중", "기사 확인중"] as const;
 
 function parsePermissions(serialized?: string | null) {
   try {
@@ -421,6 +422,7 @@ export const appRouter = router({
         const code = `TK-${Math.floor(100000 + Math.random() * 900000)}`;
         if (await getCsTicketByCode(code)) continue;
         await createCsTicket({ ticketCode: code, shipperUserId, agencyUserId, createdByUserId: ctx.user.id, createdByRole, type: input.type, status: "접수", trackingNumber: input.trackingNumber, note: input.note });
+        await createCsTicketEvent({ ticketCode: code, actorUserId: ctx.user.id, actorRole: createdByRole, actorName: actor?.organizationName || (createdByRole === "shipper" ? "화주" : "대리점"), action: `CS 접수 (${createdByRole === "shipper" ? "화주 접수" : "대리점 접수"}) · 유형 ${input.type}` });
         return { code } as const;
       }
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "티켓 번호 생성에 실패했습니다. 다시 시도해 주세요." });
@@ -429,13 +431,20 @@ export const appRouter = router({
       const actor = await getCredentialAccountByUserId(ctx.user.id);
       if (!actor) return [];
       const rows = actor.organizationType === "shipper" ? await getCsTicketsByShipperUser(ctx.user.id) : await getCsTicketsByAgencyUser(ctx.user.id);
-      return Promise.all(rows.slice().reverse().map(async row => {
+      const ordered = rows.slice().reverse();
+      const eventRows = await getCsTicketEventsByTicketCodes(ordered.map(row => row.ticketCode));
+      return Promise.all(ordered.map(async row => {
         const shipperAccount = await getCredentialAccountByUserId(row.shipperUserId);
         const evidence = await getTicketEvidenceByRequestRef(row.ticketCode);
         return {
           code: row.ticketCode,
           type: row.type,
           status: row.status,
+          checkDetail: row.checkDetail,
+          isIssue: row.isIssue,
+          issueNote: row.issueNote,
+          feedbackAt: row.feedbackAt,
+          feedbackSeenAt: row.feedbackSeenAt,
           shipperName: shipperAccount?.organizationName ?? "",
           trackingNumber: row.trackingNumber,
           recipient: row.recipient,
@@ -447,6 +456,7 @@ export const appRouter = router({
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
           evidence: await Promise.all(evidence.map(async ev => ({ category: ev.category, fileName: ev.fileName, url: await storageGetSignedUrl(ev.fileKey), createdAt: ev.createdAt }))),
+          events: eventRows.filter(event => event.ticketCode === row.ticketCode).map(event => ({ id: event.id, actorRole: event.actorRole, actorName: event.actorName, action: event.action, createdAt: event.createdAt })),
         };
       }));
     }),
@@ -454,10 +464,51 @@ export const appRouter = router({
       ticketCode: z.string().trim().min(4).max(24),
       type: z.enum(ticketTypes).optional(),
       status: z.enum(ticketStatuses).optional(),
+      checkDetail: z.enum(checkDetails).optional(),
+      isIssue: z.boolean().optional(),
+      issueNote: z.string().trim().max(300).optional(),
       result: z.string().trim().max(500).optional(),
     })).mutation(async ({ ctx, input }) => {
-      const updated = await updateCsTicketByAgency(input.ticketCode, ctx.user.id, { type: input.type, status: input.status, result: input.result });
+      const prev = await getCsTicketByCode(input.ticketCode);
+      if (!prev || prev.agencyUserId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND", message: "CS 티켓을 찾을 수 없습니다." });
+      const updated = await updateCsTicketByAgency(input.ticketCode, ctx.user.id, { type: input.type, status: input.status, result: input.result, checkDetail: input.checkDetail, isIssue: input.isIssue, issueNote: input.issueNote, touchFeedback: true });
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "CS 티켓을 찾을 수 없습니다." });
+      const account = await getCredentialAccountByUserId(ctx.user.id);
+      const parts: string[] = [];
+      if (input.status && input.status !== prev.status) parts.push(`상태 ${prev.status} → ${input.status}${updated.checkDetail ? ` (${updated.checkDetail})` : ""}`);
+      if (input.type && input.type !== prev.type) parts.push(`유형 ${prev.type} → ${input.type}`);
+      if (input.checkDetail && !input.status && input.checkDetail !== prev.checkDetail) parts.push(`확인 주체 ${prev.checkDetail ?? "미지정"} → ${input.checkDetail}`);
+      if (input.isIssue === true) parts.push(`이슈건 등록${input.issueNote ? ` · 사유: ${input.issueNote}` : ""}`);
+      if (input.isIssue === false && prev.isIssue) parts.push("이슈건 해제");
+      if (typeof input.result === "string" && input.result && input.result !== prev.result) parts.push("처리결과 업데이트");
+      await createCsTicketEvent({ ticketCode: input.ticketCode, actorUserId: ctx.user.id, actorRole: "agency", actorName: account?.organizationName || "대리점", action: parts.length > 0 ? parts.join(" / ") : "티켓 정보 업데이트" });
+      return { success: true } as const;
+    }),
+    bulkConfirm: agencyProcedure.input(z.object({
+      codes: z.array(z.string().trim().min(4).max(24)).min(1).max(50),
+      checkDetail: z.enum(checkDetails).default("대리점 확인중"),
+    })).mutation(async ({ ctx, input }) => {
+      const account = await getCredentialAccountByUserId(ctx.user.id);
+      const actorName = account?.organizationName || "대리점";
+      let updated = 0;
+      for (const code of input.codes) {
+        const prev = await getCsTicketByCode(code);
+        if (!prev || prev.agencyUserId !== ctx.user.id) continue;
+        const next = await updateCsTicketByAgency(code, ctx.user.id, { status: "확인 중", checkDetail: input.checkDetail, touchFeedback: true });
+        if (!next) continue;
+        updated++;
+        await createCsTicketEvent({ ticketCode: code, actorUserId: ctx.user.id, actorRole: "agency", actorName, action: `상태 ${prev.status} → 확인 중 (${input.checkDetail}) · 일괄 처리` });
+      }
+      if (updated === 0) throw new TRPCError({ code: "NOT_FOUND", message: "변경 가능한 티켓이 없습니다." });
+      return { updated } as const;
+    }),
+    markFeedbackSeen: protectedProcedure.input(z.object({
+      all: z.boolean().optional(),
+      ticketCode: z.string().trim().min(4).max(24).optional(),
+    })).mutation(async ({ ctx, input }) => {
+      if (input.all) { await markAllShipperFeedbackSeen(ctx.user.id); return { success: true } as const; }
+      if (!input.ticketCode) throw new TRPCError({ code: "BAD_REQUEST", message: "티켓을 선택해 주세요." });
+      await markShipperFeedbackSeen(input.ticketCode, ctx.user.id);
       return { success: true } as const;
     }),
     submitForReview: shipperProcedure.input(z.object({ ticketCode: z.string().trim().min(4).max(24) })).mutation(async ({ ctx, input }) => {
@@ -465,6 +516,8 @@ export const appRouter = router({
       if (!ticket || ticket.shipperUserId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND", message: "CS 티켓을 찾을 수 없습니다." });
       if (ticket.status !== "보상 접수 요청") throw new TRPCError({ code: "BAD_REQUEST", message: "보상 접수 요청 상태의 티켓만 보상 증빙을 제출할 수 있습니다." });
       await updateCsTicketByShipper(input.ticketCode, ctx.user.id, { status: "보상 검토" });
+      const account = await getCredentialAccountByUserId(ctx.user.id);
+      await createCsTicketEvent({ ticketCode: input.ticketCode, actorUserId: ctx.user.id, actorRole: "shipper", actorName: account?.organizationName || "화주", action: "보상 증빙 제출 · 상태 보상 접수 요청 → 보상 검토" });
       return { success: true } as const;
     }),
   }),

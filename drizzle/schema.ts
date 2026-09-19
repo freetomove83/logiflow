@@ -1,4 +1,4 @@
-import { integer, pgEnum, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, integer, pgEnum, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
 
 /**
  * Core user table backing auth flow.
@@ -12,7 +12,8 @@ export const evidenceCategoryEnum = pgEnum("evidence_category", ["damage_photo",
 export const settlementStatusEnum = pgEnum("settlement_status", ["submitted", "verified", "registered"]);
 export const sealEventTypeEnum = pgEnum("seal_event_type", ["applied", "finalized"]);
 export const ticketTypeEnum = pgEnum("ticket_type", ["파손/분실", "배송지연", "오배송", "주소변경", "미수령 확인요청", "배송문의", "기타"]);
-export const ticketStatusEnum = pgEnum("ticket_status", ["접수", "보상 접수 요청", "보상 검토", "보상 확정", "처리 완료"]);
+export const ticketStatusEnum = pgEnum("ticket_status", ["접수", "확인 중", "보상 접수 요청", "보상 검토", "보상 확정", "처리 완료"]);
+export const ticketCheckEnum = pgEnum("ticket_check", ["대리점 확인중", "기사 확인중"]);
 export const ticketActorEnum = pgEnum("ticket_actor", ["shipper", "agency"]);
 
 export const users = pgTable("users", {
@@ -131,6 +132,11 @@ export const csTickets = pgTable("cs_tickets", {
   createdByRole: ticketActorEnum("createdByRole").notNull(),
   type: ticketTypeEnum("type").notNull(),
   status: ticketStatusEnum("status").default("접수").notNull(),
+  checkDetail: ticketCheckEnum("checkDetail"),
+  isIssue: boolean("isIssue").default(false).notNull(),
+  issueNote: text("issueNote").default("").notNull(),
+  feedbackAt: timestamp("feedbackAt"),
+  feedbackSeenAt: timestamp("feedbackSeenAt"),
   trackingNumber: varchar("trackingNumber", { length: 24 }).default("").notNull(),
   recipient: varchar("recipient", { length: 100 }).default("").notNull(),
   note: text("note").notNull(),
@@ -141,6 +147,20 @@ export const csTickets = pgTable("cs_tickets", {
 
 export type CsTicketRow = typeof csTickets.$inferSelect;
 export type InsertCsTicket = typeof csTickets.$inferInsert;
+
+/** Append-only processing history for a CS ticket, shown to both the agency and the shipper. */
+export const csTicketEvents = pgTable("cs_ticket_events", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  ticketCode: varchar("ticketCode", { length: 24 }).notNull(),
+  actorUserId: integer("actorUserId").notNull(),
+  actorRole: ticketActorEnum("actorRole").notNull(),
+  actorName: varchar("actorName", { length: 100 }).default("").notNull(),
+  action: text("action").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CsTicketEventRow = typeof csTicketEvents.$inferSelect;
+export type InsertCsTicketEvent = typeof csTicketEvents.$inferInsert;
 
 /** The active corporate seal selected by a shipper. The binary is stored in object storage. */
 export const shipperSeals = pgTable("shipper_seals", {

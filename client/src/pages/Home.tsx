@@ -75,23 +75,35 @@ import { toast } from "sonner";
 type Role = "agency" | "shipper";
 type View = "tickets" | "risk" | "sla" | "shippers" | "history" | "reports" | "settings";
 
-type Ticket = {
-  id: string;
-  type: "파손/분실" | "배송지연" | "오배송" | "주소변경";
-  company: string;
-  tracking: string;
+type TicketType = "파손/분실" | "배송지연" | "오배송" | "주소변경" | "미수령 확인요청" | "배송문의" | "기타";
+type TicketStatus = "접수" | "보상 접수 요청" | "보상 검토" | "보상 확정" | "처리 완료";
+type CsTicket = {
+  code: string;
+  type: TicketType;
+  status: TicketStatus;
+  shipperName: string;
+  trackingNumber: string;
   recipient: string;
-  time: string;
-  status: "신규" | "처리중" | "답변완료";
   note: string;
-  answer: string;
-  openedBy: string;
-  participantCount: number;
-  assignee: string;
-  compensation: "해당 없음" | "보상 대기" | "보상 검토" | "보상 승인";
+  result: string;
+  createdByRole: "shipper" | "agency";
+  shipperUserId: number;
+  agencyUserId: number;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+  evidence: { category: EvidenceCategory; fileName: string; url: string; createdAt: Date | string }[];
 };
 
-type EvidenceCategory = "damage_photo" | "damage_video" | "price_proof";
+const ticketStatusStyles: Record<TicketStatus, string> = {
+  접수: "bg-[#eef2ff] text-[#5264a7] border-[#dce2fb]",
+  "보상 접수 요청": "bg-[#fff7df] text-[#a16b07] border-[#f2e1aa]",
+  "보상 검토": "bg-[#fff7df] text-[#a16b07] border-[#f2e1aa]",
+  "보상 확정": "bg-[#eaf6f4] text-[#087970] border-[#cbe9e3]",
+  "처리 완료": "bg-[#f0f3ef] text-[#5d7264] border-[#dde5dc]",
+};
+const ticketTypeOptions: TicketType[] = ["파손/분실", "배송지연", "오배송", "주소변경", "미수령 확인요청", "배송문의", "기타"];
+
+type EvidenceCategory = "damage_photo" | "damage_video" | "price_proof" | "compensation_proof";
 type UploadStatus = "ready" | "uploading" | "success" | "error";
 type EvidenceFile = {
   id: string;
@@ -123,6 +135,12 @@ const evidenceRules: Record<
     accept: ["image/jpeg", "image/png", "image/webp"],
     label: "판매가 증빙 이미지",
   },
+  compensation_proof: {
+    maxFiles: 5,
+    maxBytes: 7 * 1024 * 1024,
+    accept: ["image/jpeg", "image/png", "image/webp"],
+    label: "보상 증빙 이미지",
+  },
 };
 
 const formatFileSize = (bytes: number) =>
@@ -135,84 +153,6 @@ const readFileAsBase64 = (file: File) =>
       reject(new Error("파일을 읽는 중 문제가 발생했습니다."));
     reader.readAsDataURL(file);
   });
-
-const tickets: Ticket[] = [
-  {
-    id: "TK-89210",
-    type: "파손/분실",
-    company: "(주)에이블컴퍼니",
-    tracking: "6012938192",
-    recipient: "홍길동",
-    time: "10분 전",
-    status: "신규",
-    note: "박스 손상 심함. 사진 첨부",
-    answer: "용산지점 사고 접수 완료되었습니다. 내일 교환출고 부탁드립니다.",
-    openedBy: "박지수 · CS 담당",
-    participantCount: 3,
-    assignee: "김대리 · 운영 2팀",
-    compensation: "보상 검토",
-  },
-  {
-    id: "TK-89204",
-    type: "배송지연",
-    company: "글로벌커머스",
-    tracking: "6012938195",
-    recipient: "이영희",
-    time: "25분 전",
-    status: "처리중",
-    note: "출고 3일 경과 미배송",
-    answer: "대전HUB 상하차 지연입니다. 금일 배송 여부를 확인 중입니다.",
-    openedBy: "이현우 · 운영 매니저",
-    participantCount: 2,
-    assignee: "김대리 · 운영 2팀",
-    compensation: "해당 없음",
-  },
-  {
-    id: "TK-89192",
-    type: "오배송",
-    company: "마인드샵",
-    tracking: "6012938101",
-    recipient: "박철수",
-    time: "1시간 전",
-    status: "신규",
-    note: "수령 상품과 주문 상품이 다릅니다.",
-    answer: "수령 상품 확인 후 회수 접수를 안내드리겠습니다.",
-    openedBy: "송예린 · 출고 담당",
-    participantCount: 1,
-    assignee: "미배정",
-    compensation: "해당 없음",
-  },
-  {
-    id: "TK-89183",
-    type: "주소변경",
-    company: "(주)에이블컴퍼니",
-    tracking: "6012938144",
-    recipient: "최민수",
-    time: "2시간 전",
-    status: "처리중",
-    note: "배송 전 주소 변경 요청",
-    answer: "배달 영업소에 주소 변경 가능 여부를 확인 중입니다.",
-    openedBy: "최윤서 · 물류 담당",
-    participantCount: 2,
-    assignee: "이주임 · 수도권 배차팀",
-    compensation: "해당 없음",
-  },
-  {
-    id: "TK-89166",
-    type: "배송지연",
-    company: "올데이마켓",
-    tracking: "6012938086",
-    recipient: "한지수",
-    time: "3시간 전",
-    status: "답변완료",
-    note: "집화 이후 상태 갱신 없음",
-    answer: "간선 상차 처리되어 내일 오전 배송 예정입니다.",
-    openedBy: "한서진 · CS 담당",
-    participantCount: 2,
-    assignee: "박매니저 · 사고 보상팀",
-    compensation: "보상 대기",
-  },
-];
 
 const agencyAssignees = [
   "김대리 · 운영 2팀",
@@ -386,12 +326,15 @@ function StatusDot({
   );
 }
 
-function TicketTag({ type }: { type: Ticket["type"] }) {
+function TicketTag({ type }: { type: TicketType }) {
   const classes = {
     "파손/분실": "bg-[#f9eded] text-[#b04a4a] border-[#efd7d7]",
     배송지연: "bg-[#fff7df] text-[#a16b07] border-[#f2e1aa]",
     오배송: "bg-[#eef2ff] text-[#5264a7] border-[#dce2fb]",
     주소변경: "bg-[#eef8f7] text-[#17796f] border-[#d8eeea]",
+    "미수령 확인요청": "bg-[#fdf2ec] text-[#a06b3a] border-[#f2ddcb]",
+    배송문의: "bg-[#f0f4f8] text-[#4a6a8a] border-[#dbe4ec]",
+    기타: "bg-[#f2f2f0] text-[#6a7568] border-[#e0e5df]",
   };
   return <span className={`ticket-tag ${classes[type]}`}>{type}</span>;
 }
@@ -849,13 +792,137 @@ function TrackingLookup() {
 }
 
 function TicketsView() {
+  const utils = trpc.useUtils();
+  const csList = trpc.cs.list.useQuery(undefined, { retry: false });
+  const history = trpc.operations.agencyShipperHistory.useQuery(undefined, { retry: false });
+  const csUpdate = trpc.cs.agencyUpdate.useMutation({
+    onSuccess: async () => {
+      await utils.cs.list.invalidate();
+      toast.success("CS 상태를 변경했습니다.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const csCreate = trpc.cs.create.useMutation({
+    onSuccess: async () => {
+      await utils.cs.list.invalidate();
+      toast.success("화주에게 CS를 접수했습니다. 화주 포털에 즉시 표시됩니다.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const rows = csList.data ?? [];
+  const claimedShippers = (history.data ?? []).filter(item => item.inviteStatus === "claimed" && item.ownerUserId);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [formType, setFormType] = useState<TicketType>("파손/분실");
+  const [formTracking, setFormTracking] = useState("");
+  const [formNote, setFormNote] = useState("");
+  const [formShipper, setFormShipper] = useState("");
+  const [typeEdits, setTypeEdits] = useState<Record<string, TicketType>>({});
   return (
-    <DataResetNotice
-      title="CS 처리 현황"
-      description="초기화된 DB를 기준으로 다시 검증할 수 있도록 샘플 티켓 대시보드를 숨겼습니다."
-      helper="실제 티켓 테이블과 상세 패널이 붙기 전까지는 이 메뉴에서 숫자와 샘플 화주명이 보이지 않는 것이 맞습니다. 초대, 가입, 계정 설정, 로그인 흐름 확인 후 실티켓 연동을 붙이겠습니다."
-      icon={Inbox}
-    />
+    <div className="page-enter flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
+      <div className="content-title-row">
+        <div>
+          <p className="eyebrow">CS TICKETS · LIVE DATA</p>
+          <h1>CS 처리 현황</h1>
+          <p className="subtitle">화주 접수와 대리점 접수를 포함한 실제 CS 티켓을 한 곳에서 처리합니다.</p>
+        </div>
+        <Button className="bg-[#0e9f95] hover:bg-[#0b887f]" onClick={() => setCreateOpen(true)}>
+          <Plus className="mr-1.5 h-4 w-4" />
+          화주 CS 접수
+        </Button>
+      </div>
+      <section className="data-card mt-5">
+        <div className="data-card-head">
+          <div><p className="panel-kicker">TICKET BOARD · {rows.length}</p><h2>실시간 CS 티켓</h2></div>
+          <Badge className="bg-[#edf7f5] text-[#197a70]">실시간 조회</Badge>
+        </div>
+        {csList.isLoading ? (
+          <p className="p-8 text-center text-sm text-[#637287]">CS 티켓을 불러오는 중입니다.</p>
+        ) : rows.length === 0 ? (
+          <div className="empty-state m-6">
+            <div className="empty-icon"><Inbox /></div>
+            <h2>아직 접수된 CS가 없습니다.</h2>
+            <p>화주 포털의 건별 CS 접수 또는 우측 상단의 화주 CS 접수로 티켓이 생성됩니다.</p>
+          </div>
+        ) : (
+          <div className="cs-ticket-list">
+            {rows.map(ticket => {
+              const pendingType = typeEdits[ticket.code] ?? ticket.type;
+              return (
+                <article className="cs-ticket-card" key={ticket.code}>
+                  <div className="cs-ticket-main">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong>{ticket.code}</strong>
+                      <TicketTag type={ticket.type} />
+                      <Badge className={ticketStatusStyles[ticket.status]}>{ticket.status}</Badge>
+                      <small>{ticket.createdByRole === "shipper" ? "화주 접수" : "대리점 접수"} · {new Date(ticket.createdAt).toLocaleString("ko-KR")}</small>
+                    </div>
+                    <p className="cs-ticket-note">{ticket.note}</p>
+                    <small>{ticket.shipperName} · 송장 {ticket.trackingNumber}{ticket.result ? ` · 처리결과: ${ticket.result}` : ""}</small>
+                    {ticket.evidence.length > 0 && (
+                      <div className="cs-ticket-evidence">
+                        {ticket.evidence.map((ev, index) => (
+                          <a key={index} href={ev.url} target="_blank" rel="noreferrer">{evidenceRules[ev.category]?.label ?? ev.category} · {ev.fileName}</a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="cs-ticket-actions">
+                    {ticket.status === "접수" && <button className="cs-action amber" onClick={() => { if (window.confirm(`${ticket.code} 티켓을 보상 접수 요청 상태로 전환합니다. 화주가 보상 증빙을 등록하면 보상 검토로 이동합니다.`)) csUpdate.mutate({ ticketCode: ticket.code, status: "보상 접수 요청" }); }}>보상 접수 요청</button>}
+                    {ticket.status === "보상 검토" && <button className="cs-action teal" onClick={() => { if (window.confirm(`${ticket.code} 티켓을 보상 확정 처리합니다.`)) csUpdate.mutate({ ticketCode: ticket.code, status: "보상 확정" }); }}>보상 확정</button>}
+                    {ticket.status !== "처리 완료" && <button className="cs-action" onClick={() => { if (window.confirm(`${ticket.code} 티켓을 처리 완료로 종결합니다.`)) csUpdate.mutate({ ticketCode: ticket.code, status: "처리 완료" }); }}>처리 완료</button>}
+                    <div className="cs-type-change">
+                      <select value={pendingType} onChange={event => setTypeEdits(current => ({ ...current, [ticket.code]: event.target.value as TicketType }))}>
+                        {ticketTypeOptions.map(option => <option key={option}>{option}</option>)}
+                      </select>
+                      <button disabled={pendingType === ticket.type} onClick={() => { csUpdate.mutate({ ticketCode: ticket.code, type: pendingType }); setTypeEdits(current => { const next = { ...current }; delete next[ticket.code]; return next; }); }}>유형 변경</button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+      {createOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="agency-cs-create">
+          <div className="shipper-invite-modal">
+            <button className="modal-close" onClick={() => setCreateOpen(false)} aria-label="화주 CS 접수 닫기"><X /></button>
+            <p className="eyebrow">AGENCY CS REQUEST</p>
+            <h2 id="agency-cs-create">화주 CS 접수</h2>
+            <p>대리점에서 먼저 CS를 접수하면 해당 화주 포털의 내 CS 문의에 즉시 표시됩니다.</p>
+            <div className="invite-target-form">
+              <label>대상 화주
+                <select value={formShipper} onChange={event => setFormShipper(event.target.value)} className="h-10 rounded-lg border border-[#dae5e2] bg-white px-3 text-sm">
+                  <option value="">화주 선택</option>
+                  {claimedShippers.map(item => <option key={item.token} value={item.token}>{item.name}</option>)}
+                </select>
+              </label>
+              <label>문의 유형
+                <select value={formType} onChange={event => setFormType(event.target.value as TicketType)} className="h-10 rounded-lg border border-[#dae5e2] bg-white px-3 text-sm">
+                  {ticketTypeOptions.map(option => <option key={option}>{option}</option>)}
+                </select>
+              </label>
+              <label>송장번호
+                <Input value={formTracking} onChange={event => setFormTracking(event.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="예: 6012938192" />
+              </label>
+              <label>상세 내용
+                <textarea value={formNote} onChange={event => setFormNote(event.target.value)} className="min-h-[90px] rounded-lg border border-[#dae5e2] p-3 text-sm" placeholder="CS 내용을 입력하세요." />
+              </label>
+            </div>
+            <div className="invite-modal-actions">
+              <button onClick={() => setCreateOpen(false)}>취소</button>
+              <Button className="bg-[#0e9f95] hover:bg-[#0b887f]" disabled={csCreate.isPending} onClick={() => {
+                const shipper = claimedShippers.find(item => item.token === formShipper);
+                if (!shipper) return toast.error("CS를 접수할 화주를 선택해 주세요.");
+                if (!/^\d{8,}$/.test(formTracking.trim())) return toast.error("송장번호를 숫자 8자리 이상으로 입력해 주세요.");
+                if (formNote.trim().length < 2) return toast.error("상세 내용을 입력해 주세요.");
+                csCreate.mutate({ type: formType, trackingNumber: formTracking.trim(), note: formNote.trim(), shipperToken: formShipper }, { onSuccess: () => { setCreateOpen(false); setFormTracking(""); setFormNote(""); } });
+              }}>{csCreate.isPending ? "접수 중..." : "CS 접수"}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -981,12 +1048,6 @@ function AgencyConsole() {
   );
 }
 
-const shipperCompletedCases = [
-  { id: "TK-89074", tracking: "6012937921", recipient: "김현지", type: "배송지연" as const, result: "배송 완료 확인 및 고객 안내", closedAt: "2026-08-26 16:14", owner: "이현우 · 운영 매니저" },
-  { id: "TK-89031", tracking: "6012937752", recipient: "박서준", type: "오배송" as const, result: "회수 및 재출고 접수 완료", closedAt: "2026-08-25 13:52", owner: "박지수 · CS 담당" },
-  { id: "TK-88986", tracking: "6012937410", recipient: "이수민", type: "파손/분실" as const, result: "보상 합의 및 지급 요청 완료", closedAt: "2026-08-24 17:08", owner: "최윤서 · 물류 담당" },
-];
-
 function ShipperIssueSummary() {
   return <section className="shipper-summary"><div className="shipper-summary-head"><div><p className="panel-kicker">CS ISSUE SNAPSHOT · LIVE RESET</p><h2>실제 접수 데이터가 들어오면 요약이 표시됩니다.</h2></div><span><BarChart3 />현재는 샘플 요약 숨김</span></div><div className="empty-state border border-dashed border-[#d8e1de] bg-[#fbfcfb] py-10"><div className="empty-icon"><BarChart3 /></div><h2>더미 이슈 요약을 제거했습니다.</h2><p>DB 초기화 후에는 실제 접수 건이 쌓이기 전까지 요약 차트와 건수가 비어 있는 상태가 맞습니다.</p></div></section>;
 }
@@ -998,7 +1059,7 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
   const { logout } = useAuth();
 
   const [tracking, setTracking] = useState("");
-  const [issueType, setIssueType] = useState<Ticket["type"]>("파손/분실");
+  const [issueType, setIssueType] = useState<TicketType>("파손/분실");
   const [details, setDetails] = useState("");
   const [damagePhotos, setDamagePhotos] = useState<EvidenceFile[]>([]);
   const [damageVideos, setDamageVideos] = useState<EvidenceFile[]>([]);
@@ -1007,21 +1068,22 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
   const videoInputRef = useRef<HTMLInputElement>(null);
   const priceInputRef = useRef<HTMLInputElement>(null);
   const evidenceUpload = trpc.evidence.upload.useMutation();
-  const clientTickets = tickets.filter(
-    ticket =>
-      ticket.company === "(주)에이블컴퍼니" &&
-      `${ticket.tracking}${ticket.recipient}`.includes(search)
+  const csCreate = trpc.cs.create.useMutation();
+  const csSubmitReview = trpc.cs.submitForReview.useMutation();
+  const csUtils = trpc.useUtils();
+  const csList = trpc.cs.list.useQuery(undefined, { retry: false });
+  const shipperTickets = (csList.data ?? []).filter(ticket =>
+    `${ticket.trackingNumber}${ticket.recipient}`.includes(search)
   );
-  const visibleCases =
-    tab === "completed"
-      ? shipperCompletedCases.filter(caseItem =>
-          `${caseItem.tracking}${caseItem.recipient}`.includes(search)
-        )
-      : clientTickets;
+  const completedTickets = shipperTickets.filter(ticket => ticket.status === "처리 완료");
+  const [compensationProofs, setCompensationProofs] = useState<EvidenceFile[]>([]);
+  const [compensationTarget, setCompensationTarget] = useState("");
+  const compensationInputRef = useRef<HTMLInputElement>(null);
   const selectedFiles = {
     damage_photo: damagePhotos,
     damage_video: damageVideos,
     price_proof: priceProofs,
+    compensation_proof: compensationProofs,
   };
   const setSelectedFiles: Record<
     EvidenceCategory,
@@ -1030,6 +1092,7 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
     damage_photo: setDamagePhotos,
     damage_video: setDamageVideos,
     price_proof: setPriceProofs,
+    compensation_proof: setCompensationProofs,
   };
   const updateEvidence = (
     category: EvidenceCategory,
@@ -1104,6 +1167,7 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
     setDamagePhotos([]);
     setDamageVideos([]);
     setPriceProofs([]);
+    setCompensationProofs([]);
     setShowForm(false);
   };
   const submitRequest = async () => {
@@ -1118,7 +1182,14 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
       return toast.error(
         "파손·분실 문의에는 파손 사진 또는 동영상을 1개 이상 첨부해 주세요."
       );
-    const requestRef = `CS-${Date.now().toString().slice(-8)}`;
+    let requestRef: string;
+    try {
+      const created = await csCreate.mutateAsync({ type: issueType, trackingNumber: tracking.trim(), note: details.trim() });
+      requestRef = created.code;
+      await csUtils.cs.list.invalidate();
+    } catch (error) {
+      return toast.error(error instanceof Error ? error.message : "CS 접수에 실패했습니다. 다시 시도해 주세요.");
+    }
     const queue = (
       Object.entries(selectedFiles) as [EvidenceCategory, EvidenceFile[]][]
     ).flatMap(([category, files]) => files.map(item => ({ category, item })));
@@ -1156,6 +1227,95 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
       );
     }
   };
+  const renderTicketCard = (ticket: CsTicket) => (
+    <article className="cs-ticket-card" key={ticket.code}>
+      <div className="cs-ticket-main">
+        <div className="flex flex-wrap items-center gap-2">
+          <strong>{ticket.code}</strong>
+          <TicketTag type={ticket.type} />
+          <Badge className={ticketStatusStyles[ticket.status]}>{ticket.status}</Badge>
+          <small>{ticket.createdByRole === "shipper" ? "내가 접수" : "대리점 접수"} · {new Date(ticket.createdAt).toLocaleString("ko-KR")}</small>
+        </div>
+        <p className="cs-ticket-note">{ticket.note}</p>
+        <small>송장 {ticket.trackingNumber}{ticket.result ? ` · 처리결과: ${ticket.result}` : ""}</small>
+        {ticket.evidence.length > 0 && (
+          <div className="cs-ticket-evidence">
+            {ticket.evidence.map((ev, index) => (
+              <a key={index} href={ev.url} target="_blank" rel="noreferrer">
+                {evidenceRules[ev.category]?.label ?? ev.category} · {ev.fileName}
+              </a>
+            ))}
+          </div>
+        )}
+        {ticket.status === "보상 접수 요청" && compensationTarget === ticket.code && (
+          <div className="compensation-upload">
+            <input
+              ref={compensationInputRef}
+              className="sr-only"
+              type="file"
+              multiple
+              accept="image/jpeg,image/png,image/webp"
+              onChange={event => {
+                updateEvidence("compensation_proof", event.target.files);
+                event.currentTarget.value = "";
+              }}
+            />
+            <button type="button" className="price-proof-dropzone" onClick={() => compensationInputRef.current?.click()}>
+              <UploadCloud />
+              <span>보상 증빙 이미지 등록</span>
+              <small>JPG · PNG · WEBP / 장당 7MB</small>
+            </button>
+            {compensationProofs.length > 0 && (
+              <div className="image-preview-row">
+                {compensationProofs.map(item => (
+                  <div className="evidence-image" key={item.id}>
+                    <img src={item.previewUrl} alt={`${item.file.name} 미리보기`} />
+                    <button type="button" onClick={() => removeEvidence("compensation_proof", item.id)} aria-label={`${item.file.name} 삭제`}>
+                      <Trash2 />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button
+              className="bg-[#0e9f95] hover:bg-[#0b887f]"
+              disabled={evidenceUpload.isPending || csSubmitReview.isPending}
+              onClick={async () => {
+                if (compensationProofs.length === 0)
+                  return toast.error("보상 증빙 이미지를 1개 이상 등록해 주세요.");
+                try {
+                  for (const item of compensationProofs) {
+                    await evidenceUpload.mutateAsync({
+                      requestRef: ticket.code,
+                      category: "compensation_proof",
+                      fileName: item.file.name,
+                      contentType: item.file.type,
+                      byteSize: item.file.size,
+                      base64: await readFileAsBase64(item.file),
+                    });
+                  }
+                  await csSubmitReview.mutateAsync({ ticketCode: ticket.code });
+                  await csUtils.cs.list.invalidate();
+                  setCompensationProofs([]);
+                  setCompensationTarget("");
+                  toast.success("보상 증빙을 제출했습니다. 대리점이 보상 확정 처리합니다.");
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "보상 증빙 제출에 실패했습니다. 다시 시도해 주세요.");
+                }
+              }}
+            >
+              {csSubmitReview.isPending ? "제출 중..." : "보상 증빙 제출하고 검토 요청"}
+            </Button>
+          </div>
+        )}
+      </div>
+      {ticket.status === "보상 접수 요청" && compensationTarget !== ticket.code && (
+        <div className="cs-ticket-actions">
+          <button className="cs-action amber" onClick={() => setCompensationTarget(ticket.code)}>보상 증빙 등록</button>
+        </div>
+      )}
+    </article>
+  );
   return (
     <main className="min-h-screen bg-[#f5f7f4]">
       <header className="flex h-[72px] items-center gap-4 border-b border-[#e7e8e4] bg-[#fffefb] px-4 sm:px-8">
@@ -1216,7 +1376,7 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
             className={tab === "tickets" ? "portal-tab-active" : ""}
             onClick={() => setTab("tickets")}
           >
-            <MessageSquareText className="h-4 w-4" />내 CS 문의 <span>2</span>
+            <MessageSquareText className="h-4 w-4" />내 CS 문의 <span>{shipperTickets.filter(ticket => ticket.status !== "처리 완료").length}</span>
           </button>
           <button
             className={tab === "risk" ? "portal-tab-active" : ""}
@@ -1230,7 +1390,7 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
             className={tab === "completed" ? "portal-tab-active" : ""}
             onClick={() => setTab("completed")}
           >
-            <CheckCircle2 className="h-4 w-4" />처리 완료 <span>18</span>
+            <CheckCircle2 className="h-4 w-4" />처리 완료 <span>{completedTickets.length}</span>
           </button>
           <button
             className={tab === "documents" ? "portal-tab-active" : ""}
@@ -1254,23 +1414,17 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
         ) : tab === "completed" ? (
           <>
             <ShipperIssueSummary />
-            <section className="data-card mt-5 min-h-[490px] flex items-center justify-center">
-              <div className="empty-state max-w-[560px]">
-                <div className="empty-icon"><CheckCircle2 /></div>
-                <h2>처리 완료 이력 더미를 제거했습니다.</h2>
-                <p>실제 완료 이력 조회가 연결되기 전까지는 샘플 티켓 번호와 송장번호를 보여주지 않습니다.</p>
-              </div>
+            <section className="data-card mt-5">
+              <div className="data-card-head"><div><p className="panel-kicker">COMPLETED CS</p><h2>처리 완료 이력</h2></div></div>
+              {csList.isLoading ? <p className="p-8 text-center text-sm text-[#637287]">CS 내역을 불러오는 중입니다.</p> : completedTickets.length === 0 ? <div className="empty-state m-6"><div className="empty-icon"><CheckCircle2 /></div><h2>처리 완료된 CS가 아직 없습니다.</h2><p>대리점에서 처리를 완료하면 이 목록에 기록됩니다.</p></div> : <div className="cs-ticket-list">{completedTickets.map(renderTicketCard)}</div>}
             </section>
           </>
         ) : (
           <>
             <ShipperIssueSummary />
-            <section className="data-card mt-5 min-h-[490px] flex items-center justify-center">
-              <div className="empty-state max-w-[560px]">
-                <div className="empty-icon"><MessageSquareText /></div>
-                <h2>내 CS 문의 더미를 숨겼습니다.</h2>
-                <p>초기화된 상태에서는 실제 접수 내역이 없으므로 샘플 문의 목록 대신 빈 상태만 표시합니다. 새 문의는 상단의 건별 CS 접수로 테스트해 주세요.</p>
-              </div>
+            <section className="data-card mt-5">
+              <div className="data-card-head"><div><p className="panel-kicker">MY CS TICKETS</p><h2>내 CS 문의</h2></div><Badge className="bg-[#edf7f5] text-[#197a70]">실시간 조회</Badge></div>
+              {csList.isLoading ? <p className="p-8 text-center text-sm text-[#637287]">CS 내역을 불러오는 중입니다.</p> : shipperTickets.length === 0 ? <div className="empty-state m-6"><div className="empty-icon"><MessageSquareText /></div><h2>아직 접수한 CS가 없습니다.</h2><p>상단의 건별 CS 접수 버튼으로 첫 문의를 등록하면 대리점과 실시간으로 연결됩니다.</p></div> : <div className="cs-ticket-list">{shipperTickets.map(renderTicketCard)}</div>}
             </section>
           </>
         )}
@@ -1325,13 +1479,16 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
                     className="modal-select"
                     value={issueType}
                     onChange={event =>
-                      setIssueType(event.target.value as Ticket["type"])
+                      setIssueType(event.target.value as TicketType)
                     }
                   >
                     <option>파손/분실</option>
                     <option>배송지연</option>
                     <option>오배송</option>
                     <option>주소변경</option>
+                    <option>미수령 확인요청</option>
+                    <option>배송문의</option>
+                    <option>기타</option>
                   </select>
                 </label>
               </div>
@@ -1343,6 +1500,8 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
                   placeholder="고객 문의, 파손 상태 또는 요청 사항을 구체적으로 입력하세요."
                 />
               </label>
+              {issueType === "파손/분실" && (
+              <>
               <section className="evidence-section">
                 <div className="evidence-section-head">
                   <div>
@@ -1530,6 +1689,8 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
                   </div>
                 )}
               </section>
+              </>
+              )}
               <p className="evidence-notice">
                 <ShieldCheck />
                 증빙 파일은 CS 처리와 보상 검토 목적으로만 안전하게 보관됩니다.
@@ -1718,15 +1879,23 @@ function ShippersView() {
   const { isAuthenticated } = useAuth();
   const profile = trpc.auth.profile.useQuery(undefined, { enabled: isAuthenticated, retry: false });
   const history = trpc.operations.agencyShipperHistory.useQuery(undefined, { enabled: isAuthenticated, retry: false });
+  const csList = trpc.cs.list.useQuery(undefined, { enabled: isAuthenticated, retry: false });
+  const csByShipper = new Map<number, CsTicket[]>();
+  (csList.data ?? []).forEach(ticket => {
+    const list = csByShipper.get(ticket.shipperUserId) ?? [];
+    list.push(ticket);
+    csByShipper.set(ticket.shipperUserId, list);
+  });
   const agencyName = profile.data?.organizationName || "대리점";
   const rows = (history.data ?? []).map((item, index) => ({
     token: item.token,
+    ownerUserId: item.ownerUserId ?? -1,
     name: item.name,
     businessNumber: item.businessNumber || "미등록",
     productCategory: item.productCategory || "미등록",
     code: item.contractNumber || "계약번호 미지정",
     manager: (item.contacts?.length ?? 0) > 0 ? `${item.contacts[0].name}${item.contacts.length > 1 ? ` 외 ${item.contacts.length - 1}명` : ""}` : "담당자 미등록",
-    ticket: item.sealEvents.length > 0 ? String(item.sealEvents.length) : "0",
+    ticket: String(csByShipper.get(item.ownerUserId ?? -1)?.filter(ticket => ticket.status !== "처리 완료").length ?? 0),
     category: item.settlement ? "정산 등록" : "초대/가입",
     joined: item.inviteStatus === "claimed",
     joinLabel: item.inviteStatus === "claimed" ? "가입 완료" : item.inviteStatus === "expired" ? "초대 만료" : "초대 대기",
@@ -1759,10 +1928,10 @@ function ShippersView() {
     createInvite.mutate({ agencyName: agencyName, shipperName: shipperName.trim(), contractNumber: shipperContractNumber.trim() });
   };
   const selected = rows.find(row => row.token === selectedToken) ?? null;
-  const recentTicket = selected ? tickets.find(item => item.company === selected.name) : null;
+  const recentTicket = selected ? csByShipper.get(selected.ownerUserId ?? -1)?.[0] : undefined;
   if (history.isLoading) return <div className="management-page page-enter"><div className="empty-state"><div className="empty-icon"><Building2 /></div><h2>화주 목록을 불러오고 있습니다.</h2><p>초대 및 가입 이력을 실제 DB 기준으로 확인합니다.</p></div></div>;
   if (history.isError) return <div className="management-page page-enter"><div className="empty-state"><div className="empty-icon"><AlertTriangle /></div><h2>화주 목록을 불러오지 못했습니다.</h2><p>{history.error.message}</p><Button onClick={() => history.refetch()} className="mt-4 bg-[#0e9f95] hover:bg-[#0b887f]">다시 시도</Button></div></div>;
-  if (selected) return <div className="management-page page-enter company-detail-page"><button className="back-to-directory" onClick={() => setSelectedToken("")}>← 화주 목록</button><div className="management-title"><div><p className="eyebrow">SHIPPER PROFILE · {selected.code}</p><h1>{selected.name}</h1><p>{selected.productCategory}를 주로 취급하는 연결 화주입니다.</p></div><Button variant="outline" onClick={() => toast(`${selected.name} 담당자에게 운영 안내를 준비했습니다.`)}><Send />운영 안내 보내기</Button></div><div className="company-overview"><div className="company-profile-mark">{selected.name.replace("(주)", "").charAt(0)}</div><div><span>연결 대리점</span><strong>{agencyName}</strong><small><Link2 />초대 링크 가입일 {selected.invite}</small></div><div><span>주력 상품 카테고리</span><strong>{selected.productCategory}</strong><small>{selected.joinLabel}</small></div><div><span>월 출고 건수</span><strong>{selected.shipments}건</strong><small>최근 30일 기준</small></div></div><div className="company-detail-grid"><section><header><p className="panel-kicker">BUSINESS PROFILE</p><h2>업체 및 담당자 정보</h2></header><dl><div><dt>계약 택배 번호</dt><dd>{selected.code}</dd></div><div><dt>사업자등록번호</dt><dd>{selected.businessNumber}</dd></div><div><dt>사업장</dt><dd>{selected.address}</dd></div><div><dt>대표 연락처</dt><dd>{formatPhone(selected.contact)}</dd></div><div><dt>등록 담당자</dt><dd>{selected.manager}</dd></div></dl><div className="company-members"><p>CS 수신 담당자</p>{selected.contacts.length > 0 ? selected.contacts.map((contact, index) => <div key={index}><span>{contact.name}</span><small>{[contact.department, formatPhone(contact.phone ?? "")].filter(Boolean).join(" · ") || "등록 정보 없음"}</small></div>) : <p className="member-empty">등록된 담당자가 없습니다. 가입 시 입력한 담당자 정보가 이곳에 표시됩니다.</p>}</div></section><section><header><p className="panel-kicker">CS ACTIVITY</p><h2>최근 운영 현황</h2></header><div className="company-activity"><div><strong>{selected.ticket}</strong><span>진행 CS</span></div><div><strong>18m</strong><span>평균 1차 응답</span></div><div><strong>98.6%</strong><span>배송 SLA</span></div></div><div className="company-recent-cs"><p>최근 접수 CS</p>{recentTicket ? <div className="recent-cs-item"><span className="recent-cs-badge">{recentTicket.id} · {recentTicket.type}</span><strong>{recentTicket.note}</strong><small>{recentTicket.status} · {recentTicket.time} · {recentTicket.openedBy}</small></div> : <p className="member-empty">아직 접수한 CS가 없습니다.</p>}</div><div className="company-category-card"><Package /><div><span>주력 취급 카테고리</span><strong>{selected.productCategory}</strong></div></div><Button className="w-full bg-[#12233f] hover:bg-[#203b5e]" onClick={() => toast(`${selected.name}의 티켓 목록을 준비했습니다.`)}>이 화주의 CS 티켓 보기 <ArrowUpRight /></Button></section></div></div>;
+  if (selected) return <div className="management-page page-enter company-detail-page"><button className="back-to-directory" onClick={() => setSelectedToken("")}>← 화주 목록</button><div className="management-title"><div><p className="eyebrow">SHIPPER PROFILE · {selected.code}</p><h1>{selected.name}</h1><p>{selected.productCategory}를 주로 취급하는 연결 화주입니다.</p></div><Button variant="outline" onClick={() => toast(`${selected.name} 담당자에게 운영 안내를 준비했습니다.`)}><Send />운영 안내 보내기</Button></div><div className="company-overview"><div className="company-profile-mark">{selected.name.replace("(주)", "").charAt(0)}</div><div><span>연결 대리점</span><strong>{agencyName}</strong><small><Link2 />초대 링크 가입일 {selected.invite}</small></div><div><span>주력 상품 카테고리</span><strong>{selected.productCategory}</strong><small>{selected.joinLabel}</small></div><div><span>월 출고 건수</span><strong>{selected.shipments}건</strong><small>최근 30일 기준</small></div></div><div className="company-detail-grid"><section><header><p className="panel-kicker">BUSINESS PROFILE</p><h2>업체 및 담당자 정보</h2></header><dl><div><dt>계약 택배 번호</dt><dd>{selected.code}</dd></div><div><dt>사업자등록번호</dt><dd>{selected.businessNumber}</dd></div><div><dt>사업장</dt><dd>{selected.address}</dd></div><div><dt>대표 연락처</dt><dd>{formatPhone(selected.contact)}</dd></div><div><dt>등록 담당자</dt><dd>{selected.manager}</dd></div></dl><div className="company-members"><p>CS 수신 담당자</p>{selected.contacts.length > 0 ? selected.contacts.map((contact, index) => <div key={index}><span>{contact.name}</span><small>{[contact.department, formatPhone(contact.phone ?? "")].filter(Boolean).join(" · ") || "등록 정보 없음"}</small></div>) : <p className="member-empty">등록된 담당자가 없습니다. 가입 시 입력한 담당자 정보가 이곳에 표시됩니다.</p>}</div></section><section><header><p className="panel-kicker">CS ACTIVITY</p><h2>최근 운영 현황</h2></header><div className="company-activity"><div><strong>{selected.ticket}</strong><span>진행 CS</span></div><div><strong>18m</strong><span>평균 1차 응답</span></div><div><strong>98.6%</strong><span>배송 SLA</span></div></div><div className="company-recent-cs"><p>최근 접수 CS</p>{recentTicket ? <div className="recent-cs-item"><span className="recent-cs-badge">{recentTicket.code} · {recentTicket.type}</span><strong>{recentTicket.note}</strong><small>{recentTicket.status} · {new Date(recentTicket.createdAt).toLocaleDateString("ko-KR")} · {recentTicket.createdByRole === "shipper" ? "화주 접수" : "대리점 접수"}</small></div> : <p className="member-empty">아직 접수한 CS가 없습니다.</p>}</div><div className="company-category-card"><Package /><div><span>주력 취급 카테고리</span><strong>{selected.productCategory}</strong></div></div><Button className="w-full bg-[#12233f] hover:bg-[#203b5e]" onClick={() => toast(`${selected.name}의 티켓 목록을 준비했습니다.`)}>이 화주의 CS 티켓 보기 <ArrowUpRight /></Button></section></div></div>;
   return <div className="management-page page-enter"><div className="management-title"><div><p className="eyebrow">SHIPPER DIRECTORY · {rows.length} ACCOUNTS</p><h1>화주 목록</h1><p>화주별 담당자와 주력 상품 카테고리, 진행 중인 CS 현황을 관리합니다.</p></div><Button className="bg-[#0e9f95] hover:bg-[#0b887f]" onClick={() => setInviteOpen(true)}><Plus />화주 초대</Button></div><div className="management-toolbar"><div className="search-field"><Search /><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="화주명, 계약번호, 담당자, 카테고리 검색" /></div><select value={category} onChange={event => setCategory(event.target.value)}><option>전체 카테고리</option><option>초대/가입</option><option>정산 등록</option></select><Button variant="outline" onClick={() => toast.success(`실제 DB 기준 화주 ${rows.length}개를 불러왔습니다.`)}><Download />새로고침 안내</Button></div><section className="directory-grid"><div className="directory-stats"><div><span>연결 화주</span><strong>{rows.length}</strong><small>실제 초대/가입 이력 기준</small></div><div><span>가입 완료</span><strong>{rows.filter(row => row.joined).length}</strong><small>claimed 상태 기준</small></div><div><span>정산 등록</span><strong>{rows.filter(row => row.category === "정산 등록").length}</strong><small>정산 정보 저장 기준</small></div></div><div className="directory-table category-directory"><div className="directory-head"><span>화주 / 계약 택배 번호</span><span>등록 담당자</span><span>주력 상품 카테고리</span><span>진행 CS</span><span>최근 활동</span><span /></div>{rows.map(row => <div className="directory-row" key={row.token} onClick={() => setSelectedToken(row.token)}><div><strong>{row.name}</strong><small>{row.code}</small></div><div className="member-chip"><UsersRound />{row.manager}</div><div className="category-chip"><Package /><span><strong>{row.productCategory}</strong><small>{row.subcategory}</small></span></div><b>{row.ticket}</b><time>{row.last}</time><button onClick={event => { event.stopPropagation(); setManageToken(row.token); setManageName(row.name); setManageContract(row.code === "계약번호 미지정" ? "" : row.code); }} aria-label={`${row.name} 관리 메뉴`}><MoreVertical /></button><button onClick={() => setSelectedToken(row.token)} aria-label={`${row.name} 업체 정보 보기`}><ChevronDown /></button></div>)}{rows.length === 0 && <div className="directory-empty">선택한 조건에 맞는 화주가 없습니다.</div>}</div></section>{inviteOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="shipper-invite-title"><div className="shipper-invite-modal"><button className="modal-close" onClick={() => setInviteOpen(false)} aria-label="화주 초대 닫기"><X /></button><p className="eyebrow">SHIPPER INVITE · {agencyName.toUpperCase()}</p><h2 id="shipper-invite-title">화주 초대 링크 생성</h2><p>이 링크를 통해 가입한 화주는 {agencyName}의 화주로 자동 연결됩니다.</p><div className="invite-target-form"><label>초대할 화주사명<Input value={shipperName} onChange={event => setShipperName(event.target.value)} placeholder="예: (주)에이블컴퍼니" /></label><label>계약 택배 번호<Input value={shipperContractNumber} onChange={event => setShipperContractNumber(event.target.value.replace(/[^0-9A-Za-z-]/g, "").slice(0, 24))} placeholder="예: 361234567890" /></label></div><div className="invite-link-display"><Link2 /><span>{inviteUrl || "화주사명과 계약 택배 번호를 입력한 뒤 링크를 생성해 주세요."}</span><button disabled={!linkToken} onClick={() => { navigator.clipboard?.writeText(inviteUrl); toast.success("화주 초대 링크를 복사했습니다."); }}><Copy />복사</button></div><div className="invite-flow-preview"><span>01. 링크 전달</span><ArrowRight /><span>02. 화주 정보 등록</span><ArrowRight /><span>03. 자동 소속 연결</span></div><div className="invite-history"><p className="eyebrow">ISSUED LINKS · {invitesList.data?.length ?? 0}</p><h3>발급된 초대 링크</h3>{invitesList.isLoading && <p className="invite-history-empty">초대 이력을 불러오는 중...</p>}{!invitesList.isLoading && (invitesList.data ?? []).length === 0 && <p className="invite-history-empty">아직 발급된 초대 링크가 없습니다. 위에서 첫 링크를 생성해 주세요.</p>}<div className="invite-history-list">{(invitesList.data ?? []).slice().sort((a, b) => b.id - a.id).map(invite => { const isExpired = invite.status !== "claimed" && new Date(invite.expiresAt).getTime() < Date.now(); const statusLabel = invite.status === "claimed" ? "가입 완료" : isExpired ? "만료" : "가입 대기"; const url = `${window.location.origin}/join/${invite.token}`; return <div className="invite-history-row" key={invite.id}>{editingInviteId === invite.id ? <div className="invite-edit-form"><Input value={editShipperName} onChange={event => setEditShipperName(event.target.value)} placeholder="화주사명" /><Input value={editContractNumber} onChange={event => setEditContractNumber(event.target.value.replace(/[^0-9A-Za-z-]/g, "").slice(0, 24))} inputMode="numeric" placeholder="계약 택배 번호" /><button onClick={() => updateInvite.mutate({ id: invite.id, shipperName: editShipperName, contractNumber: editContractNumber })} disabled={updateInvite.isPending || editContractNumber.length !== 10 || editShipperName.trim().length < 2}>{updateInvite.isPending ? "저장 중..." : "저장"}</button><button onClick={() => setEditingInviteId(null)}>취소</button></div> : <><div className="invite-history-info"><strong>{invite.shipperName}</strong><small>계약번호 {invite.contractNumber} · 발급 {new Date(invite.createdAt).toLocaleDateString("ko-KR")} · 만료 {new Date(invite.expiresAt).toLocaleDateString("ko-KR")}</small></div><span className={`invite-status-chip${invite.status === "claimed" ? " ok" : isExpired ? " warn" : ""}`}>{statusLabel}</span><div className="invite-history-actions"><button onClick={() => { navigator.clipboard?.writeText(url); toast.success("초대 링크를 복사했습니다."); }}><Copy />복사</button><button onClick={() => { setEditingInviteId(invite.id); setEditShipperName(invite.shipperName); setEditContractNumber(invite.contractNumber); }}><FilePenLine />수정</button><button className="danger" onClick={() => { if (window.confirm(`${invite.shipperName} 전용 초대 링크를 삭제합니다. 삭제한 링크는 복구할 수 없습니다.`)) deleteInvite.mutate({ id: invite.id }); }}><Trash2 />삭제</button></div></>}</div>; })}</div></div><div className="invite-modal-actions"><button onClick={generate} disabled={createInvite.isPending}>{createInvite.isPending ? "링크 생성 중..." : linkToken ? "새 링크 생성" : "링크 생성"}</button><Button onClick={() => { if (!linkToken) return toast.error("먼저 유효한 화주 초대 링크를 생성해 주세요."); setInviteOpen(false); toast.success("이 링크로 화주 공지 발송 화면을 준비했습니다."); }} className="bg-[#0e9f95] hover:bg-[#0b887f]"><Send />이 링크로 화주 공지 준비</Button></div></div></div>}{manageToken && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="shipper-manage-title"><div className="shipper-invite-modal"><button className="modal-close" onClick={() => setManageToken("")} aria-label="화주 관리 닫기"><X /></button><p className="eyebrow">SHIPPER MANAGE</p><h2 id="shipper-manage-title">화주 정보 관리</h2><p>{manageName} 화주의 기본 정보를 수정하거나 연결을 삭제할 수 있습니다.</p><div className="invite-target-form"><label>화주사명<Input value={manageName} onChange={event => setManageName(event.target.value)} /></label><label>계약 택배 번호<Input value={manageContract} onChange={event => setManageContract(event.target.value.replace(/[^0-9A-Za-z-]/g, "").slice(0, 24))} /></label></div><div className="invite-modal-actions manage-actions"><button onClick={() => { if (!manageInvite) return toast.error("초대 정보를 불러오는 중입니다. 잠시 후 다시 시도해 주세요."); if (manageName.trim().length < 2) return toast.error("화주사명을 2자 이상 입력해 주세요."); if (!/^[0-9A-Za-z-]{6,24}$/.test(manageContract)) return toast.error("계약 택배 번호 6~24자를 입력해 주세요."); updateInvite.mutate({ id: manageInvite.id, shipperName: manageName.trim(), contractNumber: manageContract }); setManageToken(""); }} disabled={updateInvite.isPending}>{updateInvite.isPending ? "저장 중..." : "수정 저장"}</button><button className="manage-delete" onClick={() => { if (!window.confirm(`${manageName} 화주 연결을 삭제합니다. 가입된 화주 계정·담당자·정산·직인 데이터까지 모두 삭제되며 복구할 수 없습니다. 계속하시겠습니까?`)) return; deleteShipper.mutate({ token: manageToken }); }} disabled={deleteShipper.isPending}>{deleteShipper.isPending ? "삭제 중..." : "화주 연결 삭제(계정 포함)"}</button></div><p className="manage-note">수정한 정보는 화주 목록·가입 요약에 즉시 반영됩니다. 삭제는 되돌릴 수 없습니다.</p></div></div>}</div>;
 }
 

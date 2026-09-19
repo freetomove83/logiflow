@@ -8,9 +8,12 @@ export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
 export const organizationTypeEnum = pgEnum("organization_type", ["agency", "shipper"]);
 export const accountRoleEnum = pgEnum("account_role", ["owner", "member"]);
 export const inviteStatusEnum = pgEnum("invite_status", ["active", "claimed", "expired"]);
-export const evidenceCategoryEnum = pgEnum("evidence_category", ["damage_photo", "damage_video", "price_proof"]);
+export const evidenceCategoryEnum = pgEnum("evidence_category", ["damage_photo", "damage_video", "price_proof", "compensation_proof"]);
 export const settlementStatusEnum = pgEnum("settlement_status", ["submitted", "verified", "registered"]);
 export const sealEventTypeEnum = pgEnum("seal_event_type", ["applied", "finalized"]);
+export const ticketTypeEnum = pgEnum("ticket_type", ["파손/분실", "배송지연", "오배송", "주소변경", "미수령 확인요청", "배송문의", "기타"]);
+export const ticketStatusEnum = pgEnum("ticket_status", ["접수", "보상 접수 요청", "보상 검토", "보상 확정", "처리 완료"]);
+export const ticketActorEnum = pgEnum("ticket_actor", ["shipper", "agency"]);
 
 export const users = pgTable("users", {
   /** Surrogate primary key. Identity column managed by the database. */
@@ -117,6 +120,27 @@ export const ticketEvidence = pgTable("ticket_evidence", {
 
 export type TicketEvidence = typeof ticketEvidence.$inferSelect;
 export type InsertTicketEvidence = typeof ticketEvidence.$inferInsert;
+
+/** A single CS ticket raised by a shipper or an agency, linked through the shipper invite relationship. */
+export const csTickets = pgTable("cs_tickets", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  ticketCode: varchar("ticketCode", { length: 24 }).notNull().unique(),
+  shipperUserId: integer("shipperUserId").notNull(),
+  agencyUserId: integer("agencyUserId").notNull(),
+  createdByUserId: integer("createdByUserId").notNull(),
+  createdByRole: ticketActorEnum("createdByRole").notNull(),
+  type: ticketTypeEnum("type").notNull(),
+  status: ticketStatusEnum("status").default("접수").notNull(),
+  trackingNumber: varchar("trackingNumber", { length: 24 }).default("").notNull(),
+  recipient: varchar("recipient", { length: 100 }).default("").notNull(),
+  note: text("note").notNull(),
+  result: text("result").default("").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type CsTicketRow = typeof csTickets.$inferSelect;
+export type InsertCsTicket = typeof csTickets.$inferInsert;
 
 /** The active corporate seal selected by a shipper. The binary is stored in object storage. */
 export const shipperSeals = pgTable("shipper_seals", {

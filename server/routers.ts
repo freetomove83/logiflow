@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, deleteShipperSettlementProfile, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, updateCredentialAccountCourier, upsertShipperSettlementProfile, upsertUser, deleteShipperWithInvite } from "./db";
+import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createCsTicket, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, deleteShipperSettlementProfile, getCsTicketByCode, getCsTicketsByAgencyUser, getCsTicketsByShipperUser, getShipperSettlementProfileByUserId, getStaffInviteByToken, getTicketEvidenceByRequestRef, updateCsTicketByAgency, updateCsTicketByShipper, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, updateCredentialAccountCourier, upsertShipperSettlementProfile, upsertUser, deleteShipperWithInvite } from "./db";
 import { hashPassword, verifyPassword } from "./credentials";
 import { evidenceCategories, safeEvidenceFileName, validateEvidenceUpload } from "./evidence";
 import { validateSealUpload } from "./seal";
@@ -33,6 +33,9 @@ const agencyPermissionKeys = ["tickets.manage", "compensation.review", "shippers
 type AgencyPermissionKey = typeof agencyPermissionKeys[number];
 const agencyPermissionSchema = z.enum(agencyPermissionKeys);
 const allAgencyPermissions: AgencyPermissionKey[] = [...agencyPermissionKeys];
+
+const ticketTypes = ["파손/분실", "배송지연", "오배송", "주소변경", "미수령 확인요청", "배송문의", "기타"] as const;
+const ticketStatuses = ["접수", "보상 접수 요청", "보상 검토", "보상 확정", "처리 완료"] as const;
 
 function parsePermissions(serialized?: string | null) {
   try {
@@ -387,6 +390,82 @@ export const appRouter = router({
         };
       }));
       return rows;
+    }),
+  }),
+  cs: router({
+    create: protectedProcedure.input(z.object({
+      type: z.enum(ticketTypes),
+      trackingNumber: z.string().trim().regex(/^\d{8,24}$/, "송장번호는 숫자 8~24자리로 입력해 주세요."),
+      note: z.string().trim().min(2).max(2000),
+      shipperToken: z.string().trim().min(8).max(80).optional(),
+    })).mutation(async ({ ctx, input }) => {
+      const actor = await getCredentialAccountByUserId(ctx.user.id);
+      let shipperUserId: number;
+      let agencyUserId: number;
+      let createdByRole: "shipper" | "agency";
+      if (actor?.organizationType === "shipper") {
+        const invite = await getClaimedShipperInviteByUserId(ctx.user.id);
+        if (!invite) throw new TRPCError({ code: "FORBIDDEN", message: "연결된 대리점을 찾을 수 없습니다. 초대 링크 가입 상태를 확인해 주세요." });
+        shipperUserId = ctx.user.id;
+        agencyUserId = invite.agencyUserId;
+        createdByRole = "shipper";
+      } else {
+        if (!input.shipperToken) throw new TRPCError({ code: "BAD_REQUEST", message: "CS를 접수할 화주를 선택해 주세요." });
+        const invite = await getShipperInviteByToken(input.shipperToken);
+        if (!invite || invite.agencyUserId !== ctx.user.id || invite.status !== "claimed" || !invite.claimedByUserId) throw new TRPCError({ code: "FORBIDDEN", message: "연결된 화주만 선택할 수 있습니다." });
+        shipperUserId = invite.claimedByUserId;
+        agencyUserId = ctx.user.id;
+        createdByRole = "agency";
+      }
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const code = `TK-${Math.floor(100000 + Math.random() * 900000)}`;
+        if (await getCsTicketByCode(code)) continue;
+        await createCsTicket({ ticketCode: code, shipperUserId, agencyUserId, createdByUserId: ctx.user.id, createdByRole, type: input.type, status: "접수", trackingNumber: input.trackingNumber, note: input.note });
+        return { code } as const;
+      }
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "티켓 번호 생성에 실패했습니다. 다시 시도해 주세요." });
+    }),
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const actor = await getCredentialAccountByUserId(ctx.user.id);
+      if (!actor) return [];
+      const rows = actor.organizationType === "shipper" ? await getCsTicketsByShipperUser(ctx.user.id) : await getCsTicketsByAgencyUser(ctx.user.id);
+      return Promise.all(rows.slice().reverse().map(async row => {
+        const shipperAccount = await getCredentialAccountByUserId(row.shipperUserId);
+        const evidence = await getTicketEvidenceByRequestRef(row.ticketCode);
+        return {
+          code: row.ticketCode,
+          type: row.type,
+          status: row.status,
+          shipperName: shipperAccount?.organizationName ?? "",
+          trackingNumber: row.trackingNumber,
+          recipient: row.recipient,
+          note: row.note,
+          result: row.result,
+          createdByRole: row.createdByRole,
+          shipperUserId: row.shipperUserId,
+          agencyUserId: row.agencyUserId,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          evidence: await Promise.all(evidence.map(async ev => ({ category: ev.category, fileName: ev.fileName, url: await storageGetSignedUrl(ev.fileKey), createdAt: ev.createdAt }))),
+        };
+      }));
+    }),
+    agencyUpdate: agencyProcedure.input(z.object({
+      ticketCode: z.string().trim().min(4).max(24),
+      type: z.enum(ticketTypes).optional(),
+      status: z.enum(ticketStatuses).optional(),
+      result: z.string().trim().max(500).optional(),
+    })).mutation(async ({ ctx, input }) => {
+      const updated = await updateCsTicketByAgency(input.ticketCode, ctx.user.id, { type: input.type, status: input.status, result: input.result });
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "CS 티켓을 찾을 수 없습니다." });
+      return { success: true } as const;
+    }),
+    submitForReview: shipperProcedure.input(z.object({ ticketCode: z.string().trim().min(4).max(24) })).mutation(async ({ ctx, input }) => {
+      const ticket = await getCsTicketByCode(input.ticketCode);
+      if (!ticket || ticket.shipperUserId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND", message: "CS 티켓을 찾을 수 없습니다." });
+      if (ticket.status !== "보상 접수 요청") throw new TRPCError({ code: "BAD_REQUEST", message: "보상 접수 요청 상태의 티켓만 보상 증빙을 제출할 수 있습니다." });
+      await updateCsTicketByShipper(input.ticketCode, ctx.user.id, { status: "보상 검토" });
+      return { success: true } as const;
     }),
   }),
   tracking: router({

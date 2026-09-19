@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 
-export const evidenceCategories = ["damage_photo", "damage_video", "price_proof"] as const;
+export const evidenceCategories = ["damage_photo", "damage_video", "price_proof", "compensation_proof"] as const;
 export type EvidenceCategory = (typeof evidenceCategories)[number];
 
 const imageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);

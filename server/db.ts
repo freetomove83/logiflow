@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { accountPermissions, credentialAccounts, documentDownloadEvents, documentSealEvents, InsertAccountPermission, InsertCredentialAccount, InsertDocumentDownloadEvent, InsertDocumentSealEvent, InsertShipperInvite, ShipperInvite, InsertShipperSeal, InsertShipperSettlementProfile, InsertStaffInvite, InsertTicketEvidence, InsertUser, shipperInvites, shipperContacts, shipperSeals, shipperSettlementProfiles, staffInvites, ticketEvidence, users } from "../drizzle/schema";
+import { accountPermissions, credentialAccounts, CsTicketRow, csTickets, documentDownloadEvents, documentSealEvents, InsertAccountPermission, InsertCredentialAccount, InsertCsTicket, InsertDocumentDownloadEvent, InsertDocumentSealEvent, InsertShipperInvite, ShipperInvite, InsertShipperSeal, InsertShipperSettlementProfile, InsertStaffInvite, InsertTicketEvidence, InsertUser, shipperInvites, shipperContacts, shipperSeals, shipperSettlementProfiles, staffInvites, ticketEvidence, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -246,6 +246,57 @@ export async function deleteShipperSettlementProfile(userId: number) {
   await db.delete(shipperSettlementProfiles).where(eq(shipperSettlementProfiles.userId, userId));
 }
 
+export async function createCsTicket(ticket: InsertCsTicket) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  await db.insert(csTickets).values(ticket);
+}
+
+export async function getCsTicketByCode(code: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(csTickets).where(eq(csTickets.ticketCode, code)).limit(1);
+  return result[0];
+}
+
+export async function getCsTicketsByShipperUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(csTickets).where(eq(csTickets.shipperUserId, userId)).orderBy(csTickets.id);
+}
+
+export async function getCsTicketsByAgencyUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(csTickets).where(eq(csTickets.agencyUserId, userId)).orderBy(csTickets.id);
+}
+
+export async function updateCsTicketByAgency(code: string, agencyUserId: number, patch: { type?: CsTicketRow["type"]; status?: CsTicketRow["status"]; result?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  const set: Partial<InsertCsTicket> = { updatedAt: new Date() };
+  if (patch.type) set.type = patch.type;
+  if (patch.status) set.status = patch.status;
+  if (typeof patch.result === "string") set.result = patch.result;
+  const result = await db.update(csTickets).set(set).where(and(eq(csTickets.ticketCode, code), eq(csTickets.agencyUserId, agencyUserId))).returning();
+  return result[0];
+}
+
+export async function updateCsTicketByShipper(code: string, shipperUserId: number, patch: { status?: CsTicketRow["status"] }) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  const set: Partial<InsertCsTicket> = { updatedAt: new Date() };
+  if (patch.status) set.status = patch.status;
+  const result = await db.update(csTickets).set(set).where(and(eq(csTickets.ticketCode, code), eq(csTickets.shipperUserId, shipperUserId))).returning();
+  return result[0];
+}
+
+export async function getTicketEvidenceByRequestRef(requestRef: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(ticketEvidence).where(eq(ticketEvidence.requestRef, requestRef)).orderBy(ticketEvidence.id);
+}
+
 export async function createDocumentSealEvent(event: InsertDocumentSealEvent) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
@@ -335,6 +386,7 @@ export async function deleteShipperWithInvite(invite: ShipperInvite): Promise<bo
     await db.delete(documentSealEvents).where(eq(documentSealEvents.shipperUserId, uid));
     await db.delete(documentDownloadEvents).where(eq(documentDownloadEvents.shipperUserId, uid));
     await db.delete(ticketEvidence).where(eq(ticketEvidence.userId, uid));
+    await db.delete(csTickets).where(eq(csTickets.shipperUserId, uid));
     await db.delete(accountPermissions).where(eq(accountPermissions.userId, uid));
     await db.delete(credentialAccounts).where(eq(credentialAccounts.userId, uid));
     await db.delete(users).where(eq(users.id, uid));

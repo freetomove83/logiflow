@@ -11,6 +11,7 @@ import {
   BadgeCheck,
   BarChart3,
   Bell,
+  Megaphone,
   Menu,
   Building2,
   Check,
@@ -89,7 +90,7 @@ const applyFontScale = (value: number) => {
 
 const fontPresets: Array<[number, string]> = [[0.9, "작게"], [1, "기본"], [1.1, "크게"], [1.25, "더 크게"], [1.4, "최대"]];
 
-type View = "dashboard" | "tickets" | "track" | "risk" | "sla" | "shippers" | "history" | "reports" | "settings";
+type View = "dashboard" | "tickets" | "track" | "risk" | "sla" | "shippers" | "announcements" | "history" | "reports" | "settings";
 
 type TicketType = "파손/분실" | "배송지연" | "오배송" | "주소변경" | "미수령 확인요청" | "배송문의" | "기타";
 type TicketStatus = "접수" | "확인 중" | "보상 접수 요청" | "보상 검토" | "보상 확정" | "처리 완료";
@@ -336,6 +337,7 @@ const navItems: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "risk", label: "배송 리스크", icon: AlertTriangle },
   { id: "sla", label: "화주 SLA", icon: SlidersHorizontal },
   { id: "shippers", label: "화주 목록", icon: Building2 },
+  { id: "announcements", label: "공지 관리", icon: Megaphone },
   { id: "history", label: "화주 운영 이력", icon: History },
   { id: "reports", label: "업무 보고서", icon: ClipboardList },
   { id: "settings", label: "대리점 설정", icon: Settings },
@@ -1224,6 +1226,21 @@ function CsPopupSettingsCard({ side }: { side: "agency" | "shipper" }) {
   );
 }
 
+function AgencyNoticePage() {
+  return (
+    <div className="management-page page-enter">
+      <div className="management-title">
+        <div>
+          <p className="eyebrow">SHIPPER NOTICE BOARD</p>
+          <h1>화주 공지 관리</h1>
+          <p>화주 대시보드의 내 CS 문의 위에 표시될 공지를 등록하고, 화주별 읽음 현황을 확인합니다.</p>
+        </div>
+      </div>
+      <AgencyNoticeManager />
+    </div>
+  );
+}
+
 function AgencyNoticeManager() {
   const utils = trpc.useUtils();
   const list = trpc.announcements.list.useQuery(undefined, { retry: false });
@@ -1777,6 +1794,7 @@ function AgencyConsole() {
   const [shipperFilter, setShipperFilter] = useState<{ id: number; name: string } | null>(null);
   const renderView = () => {
     if (view === "dashboard") return <OverviewView onOpenTickets={() => setView("tickets")} />;
+    if (view === "announcements") return <AgencyNoticePage />;
     if (view === "track") return <TrackView trackingNumber={trackNumber} onBack={() => setView("tickets")} />;
     if (view === "tickets") return <TicketsView shipperFilter={shipperFilter} onClearFilter={() => setShipperFilter(null)} />;
     if (view === "risk") return <RiskView />;
@@ -2792,12 +2810,12 @@ function StaffManagementCard() {
 
 function ShipperActionAlerts() {
   const dashboard = trpc.operations.shipperDocumentDashboard.useQuery(undefined, { retry: false });
-  if (dashboard.isLoading) return <div className="mt-5 flex items-center gap-2 rounded-xl border border-[#dae5e2] bg-[#f7f9f7] px-4 py-3 text-sm text-[#637287]"><Clock3 className="h-4 w-4 animate-pulse" />정산 및 날인 문서 상태를 확인하는 중입니다.</div>;
-  if (dashboard.isError) return <div className="mt-5 flex items-center gap-2 rounded-xl border border-[#efc8c8] bg-[#fff5f5] px-4 py-3 text-sm text-[#a34d4d]"><AlertTriangle className="h-4 w-4" />정산 및 날인 문서 상태를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</div>;
+  if (dashboard.isLoading) return <div className="mt-5 flex max-w-[760px] items-center gap-2 rounded-xl border border-[#dae5e2] bg-[#f7f9f7] px-4 py-3 text-sm text-[#637287]"><Clock3 className="h-4 w-4 animate-pulse" />정산 및 날인 문서 상태를 확인하는 중입니다.</div>;
+  if (dashboard.isError) return <div className="mt-5 flex max-w-[760px] items-center gap-2 rounded-xl border border-[#efc8c8] bg-[#fff5f5] px-4 py-3 text-sm text-[#a34d4d]"><AlertTriangle className="h-4 w-4" />정산 및 날인 문서 상태를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</div>;
   const pendingSettlement = dashboard.data?.pendingSettlement;
   const pendingDocuments = dashboard.data?.pendingSignatureDocuments ?? [];
-  if (!pendingSettlement && pendingDocuments.length === 0) return <div className="mt-5 flex items-center gap-2 rounded-xl border border-[#cbe9e3] bg-[#effaf8] px-4 py-3 text-sm text-[#087970]"><CheckCircle2 className="h-4 w-4" />정산 및 날인 문서에 현재 확인이 필요한 항목이 없습니다.</div>;
-  return <section className="mt-5 grid gap-3 md:grid-cols-2" aria-label="확인이 필요한 업무 알림">
+  if (!pendingSettlement && pendingDocuments.length === 0) return <div className="mt-5 flex max-w-[760px] items-center gap-2 rounded-xl border border-[#cbe9e3] bg-[#effaf8] px-4 py-3 text-sm text-[#087970]"><CheckCircle2 className="h-4 w-4" />정산 및 날인 문서에 현재 확인이 필요한 항목이 없습니다.</div>;
+  return <section className="mt-5 grid max-w-[760px] gap-3" aria-label="확인이 필요한 업무 알림">
     {pendingSettlement && <article className="rounded-xl border border-[#f2c882] bg-[#fff7e9] p-4 shadow-sm"><div className="flex items-start gap-3"><span className="rounded-lg bg-[#ffe2ad] p-2 text-[#9a631f]"><Landmark className="h-4 w-4" /></span><div><div className="flex items-center gap-2"><p className="text-[11px] font-bold tracking-[.13em] text-[#a3651d]">ACTION REQUIRED</p><Badge className="bg-[#d9683f] text-white">정산 등록 필요</Badge></div><h2 className="mt-1 font-bold text-[#5e3d1d]">정산 계좌가 아직 등록되지 않았습니다.</h2><p className="mt-1 text-xs text-[#8c6538]">정산 정보 탭에서 계좌를 등록하면 보상금 지급 절차를 진행할 수 있습니다.</p></div></div></article>}
     {pendingDocuments.length > 0 && <article className="rounded-xl border border-[#e4c4d9] bg-[#fff4fa] p-4 shadow-sm"><div className="flex items-start gap-3"><span className="rounded-lg bg-[#f7d7e9] p-2 text-[#a44270]"><FilePenLine className="h-4 w-4" /></span><div><div className="flex items-center gap-2"><p className="text-[11px] font-bold tracking-[.13em] text-[#a44270]">SIGNATURE PENDING</p><Badge className="bg-[#c34578] text-white">서명 대기 {pendingDocuments.length}건</Badge></div><h2 className="mt-1 font-bold text-[#6f3150]">날인 또는 확정이 필요한 보상 문서가 있습니다.</h2><p className="mt-1 text-xs text-[#8d5a70]">날인 문서 탭에서 문서 상태와 합의 내용을 확인해 주세요.</p></div></div></article>}
   </section>;
@@ -2833,8 +2851,8 @@ function ShipperSettlementCenter() {
     if (!/^\d{8,30}$/.test(accountNumber)) return toast.error("계좌번호는 숫자 8~30자리로 입력해 주세요.");
     save.mutate({ bank, accountHolder: accountHolder.trim(), accountNumber });
   };
-  if (dashboard.isLoading) return <section className="data-card mt-5 min-h-[360px] p-10 text-center text-sm text-[#637287]"><Clock3 className="mx-auto mb-3 h-5 w-5 animate-pulse" />정산 정보 상태를 불러오는 중입니다.</section>;
-  if (dashboard.isError) return <section className="data-card mt-5 min-h-[360px] p-10 text-center"><AlertTriangle className="mx-auto mb-3 h-6 w-6 text-[#bd4949]" /><h2 className="font-bold">정산 정보를 불러오지 못했습니다.</h2><p className="mt-2 text-sm text-[#637287]">{dashboard.error.message}</p><Button className="mt-4 bg-[#0e9f95] hover:bg-[#0b887f]" onClick={() => dashboard.refetch()}>다시 시도</Button></section>;
+  if (dashboard.isLoading) return <section className="data-card mt-5 max-w-[760px] min-h-[360px] p-10 text-center text-sm text-[#637287]"><Clock3 className="mx-auto mb-3 h-5 w-5 animate-pulse" />정산 정보 상태를 불러오는 중입니다.</section>;
+  if (dashboard.isError) return <section className="data-card mt-5 max-w-[760px] min-h-[360px] p-10 text-center"><AlertTriangle className="mx-auto mb-3 h-6 w-6 text-[#bd4949]" /><h2 className="font-bold">정산 정보를 불러오지 못했습니다.</h2><p className="mt-2 text-sm text-[#637287]">{dashboard.error.message}</p><Button className="mt-4 bg-[#0e9f95] hover:bg-[#0b887f]" onClick={() => dashboard.refetch()}>다시 시도</Button></section>;
   const pending = dashboard.data?.pendingSettlement ?? true;
   const settlement = dashboard.data?.settlement ?? null;
   return <section className="data-card mt-5 max-w-[760px]"><div className="data-card-head"><div><p className="panel-kicker">SETTLEMENT ACCOUNT</p><h2>정산 정보 업데이트</h2><p className="mt-1 text-sm text-[#637287]">보상금 지급에 사용될 정산 계좌를 화주가 직접 등록합니다. 저장 즉시 반영되며 별도 승인 절차는 없습니다.</p></div><Badge className={pending ? "bg-[#fff7e9] text-[#a3651d]" : "bg-[#eaf6f4] text-[#087970]"}>{pending ? "등록 필요 · 미확정" : "등록 완료"}</Badge></div>{settlement && <div className="settlement-current"><div><span>현재 등록된 계좌</span><strong>{settlement.bank} · {settlement.accountHolder} · ****{settlement.accountLast4}</strong><small>{new Date(settlement.updatedAt).toLocaleDateString("ko-KR")} 저장</small></div><button type="button" className="settlement-delete" onClick={() => { if (window.confirm("등록된 정산 계좌를 삭제합니다. 삭제하면 정산 상태가 '등록 필요'로 돌아가며 보상금 지급을 위해 다시 등록이 필요합니다. 계속하시겠습니까?")) del.mutate(); }} disabled={del.isPending}>{del.isPending ? "삭제 중..." : "등록 계좌 삭제"}</button></div>}<form onSubmit={submit} className="mt-5 grid gap-4"><div className="grid gap-4 sm:grid-cols-2"><label className="grid gap-1.5 text-sm font-medium text-[#3d4a5c]">정산 은행<select value={bank} onChange={event => setBank(event.target.value)} className="h-10 rounded-lg border border-[#dae5e2] bg-white px-3 text-sm"><option value="">은행 선택</option><option>국민은행</option><option>신한은행</option><option>우리은행</option><option>하나은행</option><option>기업은행</option><option>농협</option><option>카카오뱅크</option></select></label><label className="grid gap-1.5 text-sm font-medium text-[#3d4a5c]">예금주<Input value={accountHolder} onChange={event => setAccountHolder(event.target.value)} placeholder="예금주명 (사업자명과 동일하게)" /></label></div><label className="grid gap-1.5 text-sm font-medium text-[#3d4a5c]">정산 계좌번호<Input value={accountNumber} onChange={event => setAccountNumber(event.target.value.replace(/\D/g, "").slice(0, 30))} inputMode="numeric" placeholder="숫자만 입력 (8~30자리)" /></label><div className="flex flex-wrap items-center gap-3"><Button type="submit" disabled={save.isPending} className="bg-[#0e9f95] hover:bg-[#0b887f]">{save.isPending ? "저장 중..." : settlement ? "정산 정보 다시 저장" : "정산 정보 저장"}</Button><p className="text-xs text-[#708093]">계좌번호는 암호화되어 저장되며 대리점에는 뒤 4자리만 표시됩니다.</p></div></form></section>;

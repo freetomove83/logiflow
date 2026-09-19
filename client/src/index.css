@@ -190,3 +190,4 @@ button:active { transform: scale(.98); }
 .invite-edit-form button:last-child { background: #eef2f0; color: #5a6f82; }
 @media (max-width: 580px) { .invite-history-row { flex-wrap: wrap; } .invite-history-actions { flex-wrap: wrap; } }
 
+.company-members .member-empty { margin: 2px 0 0; color: #8b9aab; font-size: 10px; }

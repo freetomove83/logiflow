@@ -169,3 +169,15 @@ export const documentDownloadEvents = pgTable("document_download_events", {
 
 export type DocumentDownloadEvent = typeof documentDownloadEvents.$inferSelect;
 export type InsertDocumentDownloadEvent = typeof documentDownloadEvents.$inferInsert;
+
+export const shipperContacts = pgTable("shipper_contacts", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  shipperUserId: integer("shipperUserId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  department: varchar("department", { length: 100 }),
+  phone: varchar("phone", { length: 40 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ShipperContact = typeof shipperContacts.$inferSelect;
+export type InsertShipperContact = typeof shipperContacts.$inferInsert;

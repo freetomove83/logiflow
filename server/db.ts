@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { accountPermissions, credentialAccounts, documentDownloadEvents, documentSealEvents, InsertAccountPermission, InsertCredentialAccount, InsertDocumentDownloadEvent, InsertDocumentSealEvent, InsertShipperInvite, InsertShipperSeal, InsertShipperSettlementProfile, InsertStaffInvite, InsertTicketEvidence, InsertUser, shipperInvites, shipperSeals, shipperSettlementProfiles, staffInvites, ticketEvidence, users } from "../drizzle/schema";
+import { accountPermissions, credentialAccounts, documentDownloadEvents, documentSealEvents, InsertAccountPermission, InsertCredentialAccount, InsertDocumentDownloadEvent, InsertDocumentSealEvent, InsertShipperInvite, InsertShipperSeal, InsertShipperSettlementProfile, InsertStaffInvite, InsertTicketEvidence, InsertUser, shipperInvites, shipperContacts, shipperSeals, shipperSettlementProfiles, staffInvites, ticketEvidence, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -289,4 +289,17 @@ export async function deleteShipperInviteByOwner(id: number, agencyUserId: numbe
   if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
   const result = await db.delete(shipperInvites).where(and(eq(shipperInvites.id, id), eq(shipperInvites.agencyUserId, agencyUserId))).returning();
   return result[0];
+}
+
+export async function replaceShipperContacts(shipperUserId: number, contacts: { name: string; department: string; phone: string }[]) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  await db.delete(shipperContacts).where(eq(shipperContacts.shipperUserId, shipperUserId));
+  if (contacts.length) await db.insert(shipperContacts).values(contacts.map(contact => ({ shipperUserId, name: contact.name, department: contact.department, phone: contact.phone })));
+}
+
+export async function getShipperContactsByUserId(shipperUserId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(shipperContacts).where(eq(shipperContacts.shipperUserId, shipperUserId)).orderBy(shipperContacts.id);
 }

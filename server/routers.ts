@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByBusinessNumber, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByBusinessNumber, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, upsertShipperSettlementProfile, upsertUser } from "./db";
+import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByBusinessNumber, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByBusinessNumber, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, upsertShipperSettlementProfile, upsertUser } from "./db";
 import { hashPassword, verifyPassword } from "./credentials";
 import { evidenceCategories, safeEvidenceFileName, validateEvidenceUpload } from "./evidence";
 import { validateSealUpload } from "./seal";
@@ -84,6 +84,7 @@ export const appRouter = router({
       contactName: z.string().trim().min(2).max(100),
       loginId: z.string().trim().toLowerCase().regex(/^[a-z0-9._-]{6,48}$/, "아이디는 영문 소문자, 숫자, ., _, - 6~48자로 입력해 주세요."),
       password: z.string().min(10, "비밀번호는 10자 이상으로 설정해 주세요.").max(128),
+      contacts: z.array(z.object({ name: z.string().trim().min(1).max(100), department: z.string().trim().max(100).default(""), phone: z.string().trim().max(40).default("") })).max(10).optional(),
       inviteToken: z.string().trim().min(8).max(80).optional(),
       staffInviteToken: z.string().trim().min(8).max(80).optional(),
     })).mutation(async ({ ctx, input }) => {
@@ -132,6 +133,7 @@ export const appRouter = router({
       }
 
       if (input.organizationType === "shipper" && input.inviteToken) await claimShipperInvite(input.inviteToken);
+      if (input.organizationType === "shipper" && input.contacts?.length) await replaceShipperContacts(user.id, input.contacts);
       if (input.organizationType === "agency" && accountRole === "member") {
         await upsertAccountPermissions({ userId: user.id, permissionsJson: JSON.stringify(staffInvitePermissions), updatedByUserId: staffInviteActorUserId ?? user.id });
       }
@@ -336,6 +338,7 @@ export const appRouter = router({
         const settlement = owner ? await getShipperSettlementProfileByUserId(owner.userId) : undefined;
         const sealEvents = owner ? await getDocumentSealEventsByShipperUserId(owner.userId) : [];
         const downloadEvents = owner ? await getDocumentDownloadEventsByShipperUserId(owner.userId) : [];
+        const contactRows = owner ? await getShipperContactsByUserId(owner.userId) : [];
         return {
           token: invite.token,
           businessNumber: invite.businessNumber,
@@ -345,6 +348,7 @@ export const appRouter = router({
           expiresAt: invite.expiresAt,
           claimedAt: invite.claimedAt,
           contactCount: shipperAccounts.length,
+          contacts: contactRows.map(contact => ({ name: contact.name, department: contact.department, phone: contact.phone })),
           ownerUserId: owner?.userId ?? null,
           settlement: settlement ? { bank: settlement.bank, accountLast4: settlement.accountLast4, status: settlement.status, updatedAt: settlement.updatedAt } : null,
           sealEvents: sealEvents.map(event => ({ documentRef: event.documentRef, eventType: event.eventType, createdAt: event.createdAt })),

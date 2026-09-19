@@ -981,7 +981,7 @@ function ShipperIssueSummary() {
 }
 
 function ShipperPortal({ organizationName }: { organizationName: string }) {
-  const [tab, setTab] = useState<"tickets" | "risk" | "completed" | "documents">("tickets");
+  const [tab, setTab] = useState<"tickets" | "risk" | "completed" | "documents" | "settlement">("tickets");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const { logout } = useAuth();
@@ -1227,11 +1227,19 @@ function ShipperPortal({ organizationName }: { organizationName: string }) {
           >
             <FileText className="h-4 w-4" />날인 문서 <span className="bg-[#eef2f8] text-[#263e60]">PDF</span>
           </button>
+          <button
+            className={tab === "settlement" ? "portal-tab-active" : ""}
+            onClick={() => setTab("settlement")}
+          >
+            <Landmark className="h-4 w-4" />정산 정보
+          </button>
         </div>
         {tab === "risk" ? (
           <RiskView shipper />
         ) : tab === "documents" ? (
           <ShipperDocumentCenter organizationName={organizationName} />
+        ) : tab === "settlement" ? (
+          <ShipperSettlementCenter />
         ) : tab === "completed" ? (
           <>
             <ShipperIssueSummary />
@@ -1560,6 +1568,35 @@ function ShipperActionAlerts() {
     {pendingSettlement && <article className="rounded-xl border border-[#f2c882] bg-[#fff7e9] p-4 shadow-sm"><div className="flex items-start gap-3"><span className="rounded-lg bg-[#ffe2ad] p-2 text-[#9a631f]"><Landmark className="h-4 w-4" /></span><div><div className="flex items-center gap-2"><p className="text-[11px] font-bold tracking-[.13em] text-[#a3651d]">ACTION REQUIRED</p><Badge className="bg-[#d9683f] text-white">정산 확인 필요</Badge></div><h2 className="mt-1 font-bold text-[#5e3d1d]">등록한 정산 계좌를 확인해 주세요.</h2><p className="mt-1 text-xs text-[#8c6538]">대리점 검토가 완료되어야 보상금 지급 절차를 시작할 수 있습니다.</p></div></div></article>}
     {pendingDocuments.length > 0 && <article className="rounded-xl border border-[#e4c4d9] bg-[#fff4fa] p-4 shadow-sm"><div className="flex items-start gap-3"><span className="rounded-lg bg-[#f7d7e9] p-2 text-[#a44270]"><FilePenLine className="h-4 w-4" /></span><div><div className="flex items-center gap-2"><p className="text-[11px] font-bold tracking-[.13em] text-[#a44270]">SIGNATURE PENDING</p><Badge className="bg-[#c34578] text-white">서명 대기 {pendingDocuments.length}건</Badge></div><h2 className="mt-1 font-bold text-[#6f3150]">날인 또는 확정이 필요한 보상 문서가 있습니다.</h2><p className="mt-1 text-xs text-[#8d5a70]">날인 문서 탭에서 문서 상태와 합의 내용을 확인해 주세요.</p></div></div></article>}
   </section>;
+}
+
+function ShipperSettlementCenter() {
+  const dashboard = trpc.operations.shipperDocumentDashboard.useQuery(undefined, { retry: false });
+  const utils = trpc.useUtils();
+  const [bank, setBank] = useState("");
+  const [accountHolder, setAccountHolder] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const save = trpc.operations.upsertSettlement.useMutation({
+    onSuccess: async result => {
+      await utils.operations.shipperDocumentDashboard.invalidate();
+      setBank("");
+      setAccountHolder("");
+      setAccountNumber("");
+      toast.success(`정산 정보를 저장했습니다. 대리점 검토 후 확정됩니다. (****${result.accountLast4})`);
+    },
+    onError: error => toast.error(error.message),
+  });
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!bank) return toast.error("정산 은행을 선택해 주세요.");
+    if (accountHolder.trim().length < 2) return toast.error("예금주명을 입력해 주세요.");
+    if (!/^\d{8,30}$/.test(accountNumber)) return toast.error("계좌번호는 숫자 8~30자리로 입력해 주세요.");
+    save.mutate({ bank, accountHolder: accountHolder.trim(), accountNumber });
+  };
+  if (dashboard.isLoading) return <section className="data-card mt-5 min-h-[360px] p-10 text-center text-sm text-[#637287]"><Clock3 className="mx-auto mb-3 h-5 w-5 animate-pulse" />정산 정보 상태를 불러오는 중입니다.</section>;
+  if (dashboard.isError) return <section className="data-card mt-5 min-h-[360px] p-10 text-center"><AlertTriangle className="mx-auto mb-3 h-6 w-6 text-[#bd4949]" /><h2 className="font-bold">정산 정보를 불러오지 못했습니다.</h2><p className="mt-2 text-sm text-[#637287]">{dashboard.error.message}</p><Button className="mt-4 bg-[#0e9f95] hover:bg-[#0b887f]" onClick={() => dashboard.refetch()}>다시 시도</Button></section>;
+  const pending = dashboard.data?.pendingSettlement ?? true;
+  return <section className="data-card mt-5 max-w-[760px]"><div className="data-card-head"><div><p className="panel-kicker">SETTLEMENT ACCOUNT</p><h2>정산 정보 업데이트</h2><p className="mt-1 text-sm text-[#637287]">보상금 지급에 사용될 정산 계좌를 등록합니다. 등록 즉시 대리점 검토가 시작됩니다.</p></div><Badge className={pending ? "bg-[#fff7e9] text-[#a3651d]" : "bg-[#eaf6f4] text-[#087970]"}>{pending ? "검토 필요 · 미확정" : "검토 완료"}</Badge></div><form onSubmit={submit} className="mt-5 grid gap-4"><div className="grid gap-4 sm:grid-cols-2"><label className="grid gap-1.5 text-sm font-medium text-[#3d4a5c]">정산 은행<select value={bank} onChange={event => setBank(event.target.value)} className="h-10 rounded-lg border border-[#dae5e2] bg-white px-3 text-sm"><option value="">은행 선택</option><option>국민은행</option><option>신한은행</option><option>우리은행</option><option>하나은행</option><option>기업은행</option><option>농협</option><option>카카오뱅크</option></select></label><label className="grid gap-1.5 text-sm font-medium text-[#3d4a5c]">예금주<Input value={accountHolder} onChange={event => setAccountHolder(event.target.value)} placeholder="예금주명 (사업자명과 동일하게)" /></label></div><label className="grid gap-1.5 text-sm font-medium text-[#3d4a5c]">정산 계좌번호<Input value={accountNumber} onChange={event => setAccountNumber(event.target.value.replace(/\D/g, "").slice(0, 30))} inputMode="numeric" placeholder="숫자만 입력 (8~30자리)" /></label><div className="flex flex-wrap items-center gap-3"><Button type="submit" disabled={save.isPending} className="bg-[#0e9f95] hover:bg-[#0b887f]">{save.isPending ? "저장 중..." : "정산 정보 저장하고 검토 요청"}</Button><p className="text-xs text-[#708093]">계좌번호는 암호화되어 저장되며 대리점에는 뒤 4자리만 표시됩니다.</p></div></form></section>;
 }
 
 function ShipperDocumentCenter({ organizationName }: { organizationName: string }) {

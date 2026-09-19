@@ -107,90 +107,40 @@ function FinalDispatchDialog({ agency, count, onClose }: { agency: string; count
 export function ShipperJoinPage() {
   const [location, setLocation] = useLocation();
   const token = location.split("/").pop() || "invite";
-  const joinPath = `/join/${token}`;
-  const accountSetupUrl = `/account-setup?role=shipper&inviteToken=${encodeURIComponent(token)}&returnTo=${encodeURIComponent(joinPath)}`;
-  const shipperLoginUrl = `/login?returnTo=${encodeURIComponent(joinPath)}`;
+  const shipperLoginUrl = `/login?returnTo=${encodeURIComponent("/console")}`;
   const [contacts, setContacts] = useState([{ name: "", department: "", phone: "" }]);
-  const [sealName, setSealName] = useState("");
-  const [sealPreview, setSealPreview] = useState("");
-  const [sealFile, setSealFile] = useState<File | null>(null);
-  const [sealError, setSealError] = useState("");
-  const sealInput = useRef<HTMLInputElement>(null);
-  const formRef = useRef<HTMLFormElement>(null);
+  const [representative, setRepresentative] = useState("");
+  const [loginId, setLoginId] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
   const [complete, setComplete] = useState(false);
-  const sealUpload = trpc.seal.upload.useMutation();
-  const settlementSave = trpc.operations.upsertSettlement.useMutation();
-   const { isAuthenticated, loading: authLoading } = useAuth();
-   const canEditSensitiveInfo = isAuthenticated && !authLoading;
-   const inviteInfo = trpc.invites.shipperSetup.useQuery({ token }, { retry: false });
+  const [createdLoginId, setCreatedLoginId] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
+  const inviteInfo = trpc.invites.shipperSetup.useQuery({ token }, { retry: false });
+  const utils = trpc.useUtils();
+  const register = trpc.auth.registerCredential.useMutation({
+    onSuccess: async result => {
+      await utils.auth.me.invalidate();
+      setCreatedLoginId(result.loginId);
+      setComplete(true);
+      toast.success("가입이 완료되었습니다. 설정한 아이디로 로그인됩니다.");
+    },
+    onError: error => toast.error(error.message),
+  });
   const addContact = () => setContacts(current => [...current, { name: "", department: "", phone: "" }]);
   const updateContact = (index: number, field: "name" | "department" | "phone", value: string) => setContacts(current => current.map((contact, i) => i === index ? { ...contact, [field]: value } : contact));
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
     if (!form.checkValidity()) return form.reportValidity();
-    try {
-      const formData = new FormData(form);
-      const settlementBank = String(formData.get("settlementBank") || "");
-      const settlementAccountHolder = String(formData.get("settlementAccountHolder") || "").trim();
-      const accountNumber = String(formData.get("settlementAccountNumber") || "").replace(/\D/g, "");
-      const hasAnySettlement = Boolean(settlementBank || settlementAccountHolder || accountNumber);
-      const hasCompleteSettlement = Boolean(settlementBank && settlementAccountHolder && accountNumber);
-
-      if (!isAuthenticated && (hasAnySettlement || sealFile)) {
-        toast("정산 정보와 직인은 로그인 후 화주 포털에서 추가 등록할 수 있습니다. 지금은 기본 정보만 연결합니다.");
-      }
-
-      if (isAuthenticated && hasCompleteSettlement) {
-        await settlementSave.mutateAsync({
-          bank: settlementBank,
-          accountHolder: settlementAccountHolder,
-          accountNumber,
-        });
-      } else if (isAuthenticated && hasAnySettlement) {
-        toast.warning("정산 정보는 은행, 예금주, 계좌번호를 모두 입력했을 때만 저장됩니다. 지금은 기본 정보만 연결합니다.");
-      }
-
-      if (isAuthenticated && sealFile) {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.onerror = () => reject(new Error("직인 파일을 읽는 중 문제가 발생했습니다."));
-          reader.readAsDataURL(sealFile);
-        });
-        const result = await sealUpload.mutateAsync({ fileName: sealFile.name, contentType: sealFile.type as "image/jpeg" | "image/png" | "image/webp", byteSize: sealFile.size, base64: dataUrl.split(",")[1] ?? "" });
-        sessionStorage.setItem("logiflow:shipper-seal-preview", result.url);
-        sessionStorage.setItem("logiflow:shipper-seal-name", result.fileName);
-      }
-
-      setComplete(true);
-      toast.success("화주 기본 정보가 등록되었습니다. 다음 단계에서 로그인 아이디와 비밀번호를 설정해 주세요.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "직인 저장에 실패했습니다. 다시 시도해 주세요.";
-      setSealError(message);
-      toast.error(message);
-    }
+    if (!inviteInfo.data) return toast.error("유효하지 않거나 만료된 초대 링크입니다. 대리점에 새 링크 발급을 요청해 주세요.");
+    const trimmedLoginId = loginId.trim().toLowerCase();
+    if (representative.trim().length < 2) return toast.error("대표자명을 2자 이상 입력해 주세요.");
+    if (!/^[a-z0-9._-]{6,48}$/.test(trimmedLoginId)) return toast.error("아이디는 영문 소문자, 숫자, ., _, - 조합 6~48자로 입력해 주세요.");
+    if (password.length < 10) return toast.error("비밀번호는 10자 이상으로 설정해 주세요.");
+    if (password !== passwordConfirm) return toast.error("비밀번호 확인이 일치하지 않습니다.");
+    register.mutate({ organizationType: "shipper", organizationName: inviteInfo.data.shipperName, businessNumber: inviteInfo.data.businessNumber, contactName: representative.trim(), loginId: trimmedLoginId, password, inviteToken: token });
   };
-  const handleSealSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 7 * 1024 * 1024) {
-      toast.error("직인 이미지는 JPG, PNG, WEBP 형식의 7MB 이하 파일만 등록할 수 있습니다.");
-      event.currentTarget.value = "";
-      return;
-    }
-    setSealName(file.name);
-    setSealFile(file);
-    setSealError("");
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result);
-      setSealPreview(dataUrl);
-      sessionStorage.setItem("logiflow:shipper-seal-preview", dataUrl);
-      sessionStorage.setItem("logiflow:shipper-seal-name", file.name);
-    };
-    reader.readAsDataURL(file);
-  };
-  if (complete) return <main className="join-complete"><Brand /><section><span><CheckCircle2 /></span><p className="landing-eyebrow">CONNECTED SUCCESSFULLY</p><h1>화주 정보 연결이<br />완료되었습니다.</h1><p>아직 로그인 계정은 만들어지지 않았습니다. 다음 단계에서 담당자 로그인 아이디와 비밀번호를 설정해야 화주 포털에 접속할 수 있습니다.</p><div className="join-account-callout"><KeyRound /><p><strong>다음 단계: 로그인 아이디 만들기</strong><span>초대 링크가 연결된 상태에서 담당자 계정을 먼저 설정한 뒤 로그인해 주세요.</span></p><Link href={accountSetupUrl}>로그인 아이디 만들기</Link></div><div><Link href={accountSetupUrl}>계정 설정 계속하기 <ArrowRight /></Link><Link href={shipperLoginUrl}>이미 계정이 있으면 로그인</Link><button onClick={() => setLocation("/")}>서비스 홈으로</button></div></section></main>;
-  return <main className="shipper-join"><header><Brand /><div className="join-access-links"><Link href={accountSetupUrl}>로그인 아이디 만들기</Link><Link href={shipperLoginUrl}>로그인</Link><span><LockKeyhole />초대 코드 확인됨 · {token.slice(-6).toUpperCase()}</span></div></header><div className="join-shell"><aside><p className="landing-eyebrow">PARTNER INVITATION</p><h1>{inviteInfo.data?.agencyName || "서울중앙물류"}의<br /><i>화주 협업 공간</i>에<br />초대되었습니다.</h1><ol><li><span>01</span>화주 기본 정보 등록</li><li><span>02</span>담당자와 CS 수신 정보 등록</li><li><span>03</span>정산 계좌와 직인은 로그인 후 추가 등록</li></ol><div className="auto-connect"><Link2 /><p><strong>자동 소속 연결</strong><span>가입 완료 즉시 {inviteInfo.data?.agencyName || "대리점"}의 화주로 연결됩니다.</span></p></div></aside><form ref={formRef} onSubmit={submit}><div className="join-section"><div className="join-section-title"><Building2 /><div><span>01</span><h2>화주 기본 정보</h2></div></div>{inviteInfo.isLoading ? <div className="invite-company-summary"><span>초대 화주 정보</span><strong>초대 정보를 확인하고 있습니다...</strong></div> : inviteInfo.data ? <div className="invite-company-summary"><span>초대 화주 정보 · 자동 적용</span><strong>{inviteInfo.data.shipperName}</strong><small>사업자등록번호 {inviteInfo.data.businessNumber}</small></div> : <div className="credential-invite-error">유효하지 않거나 만료된 초대 링크입니다. 대리점에 새 링크 발급을 요청해 주세요.</div>}<div className="form-grid"><label>대표자명 <Input required placeholder="예: 홍길동" /></label><label>대표 연락처 <Input required type="tel" placeholder="010-1234-5678" /></label></div><label>사업장 주소 <Input required placeholder="주소를 입력해 주세요" /></label></div><div className="join-section"><div className="join-section-title"><UsersRound /><div><span>02</span><h2>담당자 및 CS 수신 정보</h2></div><button type="button" onClick={addContact}>+ 담당자 추가</button></div>{contacts.map((contact, index) => <div className="contact-row" key={index}><b>담당자 {index + 1}</b><Input required value={contact.name} onChange={event => updateContact(index, "name", event.target.value)} placeholder="성명" /><Input required value={contact.department} onChange={event => updateContact(index, "department", event.target.value)} placeholder="부서 / 역할" /><Input required value={contact.phone} onChange={event => updateContact(index, "phone", event.target.value)} placeholder="휴대폰 번호" /></div>)}<p className="field-hint"><MessageSquare />등록된 담당자는 CS 답변 및 보상 결과 안내를 받을 수 있습니다.</p><div className="join-account-callout"><KeyRound /><p><strong>로그인 아이디는 이 화면에서 입력하지 않습니다.</strong><span>이 가입을 마친 뒤 반드시 계정 설정으로 이동해 담당자 로그인 아이디와 비밀번호를 만들어 주세요.</span></p><Link href={accountSetupUrl}>로그인 아이디 만들기</Link></div></div><div className="join-section"><div className="join-section-title"><WalletCards /><div><span>03</span><h2>정산 정보 및 직인</h2></div></div><div className="sensitive-banner"><LockKeyhole /><div><strong>{canEditSensitiveInfo ? "로그인된 상태에서만 안전하게 저장됩니다." : "정산 정보와 직인은 로그인 후 등록합니다."}</strong><span>{canEditSensitiveInfo ? "지금 입력한 정산 정보와 직인은 화주 포털에 안전하게 저장됩니다. 비워두면 기본 정보만 먼저 연결됩니다." : "지금은 화주 기본 정보와 담당자 정보만 연결합니다. 가입 완료 후 화주 포털 로그인 상태에서 정산 정보와 직인을 등록해 주세요."}</span></div>{!canEditSensitiveInfo && <Button type="button" variant="outline" onClick={() => setLocation(shipperLoginUrl)}>로그인 후 등록하기</Button>}</div>{canEditSensitiveInfo ? <><div className="form-grid"><label>정산 은행 <select name="settlementBank"><option value="">은행 선택</option><option>국민은행</option><option>신한은행</option><option>우리은행</option><option>하나은행</option><option>기업은행</option></select></label><label>예금주 <Input name="settlementAccountHolder" placeholder="예금주명" /></label></div><label>정산 계좌번호 <Input name="settlementAccountNumber" inputMode="numeric" placeholder="숫자만 입력" /></label><input ref={sealInput} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={handleSealSelection} /><button type="button" className={sealName ? "seal-uploader seal-ready" : "seal-uploader"} onClick={() => sealInput.current?.click()}>{sealPreview ? <img src={sealPreview} alt="등록 예정 직인 미리보기" className="seal-upload-preview" /> : sealName ? <CheckCircle2 /> : <UploadCloud />}<span><strong>{sealName || "회사 직인 이미지 등록 (선택)"}</strong><small>{sealName ? "등록 준비 완료 · 제출 시 안전하게 저장됩니다." : "PNG, JPG, WEBP · 지금은 생략해도 가입이 완료됩니다."}</small></span><ArrowRight /></button>{sealError && <div className="seal-storage-error"><span>{sealError}</span><button type="button" onClick={() => { setSealError(""); formRef.current?.requestSubmit(); }}>다시 시도</button></div>}<p className="field-hint"><ShieldCheck />정산 정보와 직인은 로그인된 화주 포털에서만 저장되며, 비워두면 기본 정보만 먼저 연결됩니다.</p></> : <div className="join-account-callout"><LockKeyhole /><p><strong>이 단계에서는 정산 정보와 직인을 받지 않습니다.</strong><span>가입 완료 후 화주 포털에서 로그인한 뒤 안전하게 등록해 주세요.</span></p><Link href={shipperLoginUrl}>로그인 후 등록</Link></div>}</div><Button type="submit" className="join-submit" disabled={sealUpload.isPending || settlementSave.isPending || inviteInfo.isLoading || inviteInfo.isError}>{sealUpload.isPending || settlementSave.isPending ? "민감 정보 보안 저장 중..." : "화주 등록 완료하고 대리점에 연결"} <ArrowRight /></Button></form></div></main>;
+  if (complete) return <main className="join-complete"><Brand /><section><span><CheckCircle2 /></span><p className="landing-eyebrow">JOIN COMPLETED</p><h1>화주 가입이<br />완료되었습니다.</h1><p><strong>{createdLoginId}</strong> 아이디로 로그인된 상태입니다. 정산 계좌와 직인은 화주 포털에 로그인한 뒤 등록할 수 있습니다.</p><div className="join-account-callout"><LockKeyhole /><p><strong>다음 단계: 정산 정보 등록 (로그인 후)</strong><span>화주 포털의 정산 정보 탭에서 은행·예금주·계좌번호를 안전하게 등록하면 대리점 검토가 시작됩니다.</span></p><Link href="/console">화주 포털 열기 <ArrowRight /></Link></div><div><Link href="/console">정산 정보 등록하러 가기 <ArrowRight /></Link><button onClick={() => setLocation("/")}>서비스 홈으로</button></div></section></main>;
+  return <main className="shipper-join"><header><Brand /><div className="join-access-links"><Link href={shipperLoginUrl}>이미 계정이 있으면 로그인</Link><span><LockKeyhole />초대 코드 확인됨 · {token.slice(-6).toUpperCase()}</span></div></header><div className="join-shell"><aside><p className="landing-eyebrow">PARTNER INVITATION</p><h1>{inviteInfo.data?.agencyName || "서울중앙물류"}의<br /><i>화주 협업 공간</i>에<br />초대되었습니다.</h1><ol><li><span>01</span>화주 기본 정보 등록</li><li><span>02</span>담당자와 CS 수신 정보 등록</li><li><span>03</span>로그인 아이디·비밀번호 설정</li></ol><div className="auto-connect"><Link2 /><p><strong>정산 계좌·직인은 가입 후 등록</strong><span>가입을 마치고 화주 포털에 로그인하면 정산 정보와 직인을 안전하게 등록할 수 있습니다.</span></p></div><div className="auto-connect"><Link2 /><p><strong>자동 소속 연결</strong><span>가입 완료 즉시 {inviteInfo.data?.agencyName || "대리점"}의 화주로 연결됩니다.</span></p></div></aside><form ref={formRef} onSubmit={submit}><div className="join-section"><div className="join-section-title"><Building2 /><div><span>01</span><h2>화주 기본 정보</h2></div></div>{inviteInfo.isLoading ? <div className="invite-company-summary"><span>초대 화주 정보</span><strong>초대 정보를 확인하고 있습니다...</strong></div> : inviteInfo.data ? <div className="invite-company-summary"><span>초대 화주 정보 · 자동 적용</span><strong>{inviteInfo.data.shipperName}</strong><small>사업자등록번호 {inviteInfo.data.businessNumber}</small></div> : <div className="credential-invite-error">유효하지 않거나 만료된 초대 링크입니다. 대리점에 새 링크 발급을 요청해 주세요.</div>}<div className="form-grid"><label>대표자명 <Input required value={representative} onChange={event => setRepresentative(event.target.value)} placeholder="예: 홍길동" /></label><label>대표 연락처 <Input required type="tel" placeholder="010-1234-5678" /></label></div><label>사업장 주소 <Input required placeholder="주소를 입력해 주세요" /></label></div><div className="join-section"><div className="join-section-title"><UsersRound /><div><span>02</span><h2>담당자 및 CS 수신 정보</h2></div><button type="button" onClick={addContact}>+ 담당자 추가</button></div>{contacts.map((contact, index) => <div className="contact-row" key={index}><b>담당자 {index + 1}</b><Input required value={contact.name} onChange={event => updateContact(index, "name", event.target.value)} placeholder="성명" /><Input required value={contact.department} onChange={event => updateContact(index, "department", event.target.value)} placeholder="부서 / 역할" /><Input required value={contact.phone} onChange={event => updateContact(index, "phone", event.target.value)} placeholder="휴대폰 번호" /></div>)}<p className="field-hint"><MessageSquare />등록된 담당자는 CS 답변 및 보상 결과 안내를 받을 수 있습니다.</p></div><div className="join-section"><div className="join-section-title"><KeyRound /><div><span>03</span><h2>로그인 아이디 만들기</h2></div></div><p className="field-hint"><ShieldCheck />화면 이동 없이 이 폼에서 가입까지 완료합니다. 아이디와 비밀번호를 설정하면 즉시 로그인됩니다.</p><div className="form-grid"><label>로그인 아이디 <Input required value={loginId} onChange={event => setLoginId(event.target.value)} placeholder="영문 소문자·숫자 6~48자" autoComplete="username" /></label><label>비밀번호 <Input required type="password" value={password} onChange={event => setPassword(event.target.value)} placeholder="10자 이상" autoComplete="new-password" /></label></div><label>비밀번호 확인 <Input required type="password" value={passwordConfirm} onChange={event => setPasswordConfirm(event.target.value)} placeholder="비밀번호를 한 번 더 입력" autoComplete="new-password" /></label><div className="join-account-callout"><LockKeyhole /><p><strong>정산 계좌와 직인은 지금 받지 않습니다.</strong><span>가입 완료 후 화주 포털에 로그인한 뒤, 정산 정보 탭에서 안전하게 등록해 주세요.</span></p></div></div><Button type="submit" className="join-submit" disabled={register.isPending || inviteInfo.isLoading || inviteInfo.isError}>{register.isPending || inviteInfo.isLoading ? "가입 처리 중..." : "가입 완료하고 로그인"} <ArrowRight /></Button></form></div></main>;
 }

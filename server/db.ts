@@ -147,10 +147,10 @@ export async function getShipperInviteByToken(token: string) {
   return result[0];
 }
 
-export async function claimShipperInvite(token: string) {
+export async function claimShipperInvite(token: string, claimedByUserId?: number) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
-  await db.update(shipperInvites).set({ status: "claimed", claimedAt: new Date() }).where(eq(shipperInvites.token, token));
+  await db.update(shipperInvites).set({ status: "claimed", claimedAt: new Date(), claimedByUserId: claimedByUserId ?? null }).where(eq(shipperInvites.token, token));
 }
 
 export async function getShipperInvitesByAgencyUserId(agencyUserId: number) {
@@ -302,4 +302,18 @@ export async function getShipperContactsByUserId(shipperUserId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(shipperContacts).where(eq(shipperContacts.shipperUserId, shipperUserId)).orderBy(shipperContacts.id);
+}
+
+export async function getClaimedShipperInviteByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(shipperInvites).where(eq(shipperInvites.claimedByUserId, userId)).limit(1);
+  return result[0];
+}
+
+export async function updateCredentialAccountCourier(userId: number, courier: string) {
+  const db = await getDb();
+  if (!db) throw new Error("데이터베이스 연결을 확인할 수 없습니다.");
+  const result = await db.update(credentialAccounts).set({ courier }).where(eq(credentialAccounts.userId, userId)).returning();
+  return result[0];
 }

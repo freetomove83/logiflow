@@ -41,7 +41,8 @@ export const credentialAccounts = pgTable("credential_accounts", {
   loginId: varchar("loginId", { length: 48 }).notNull().unique(),
   passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),  courier: varchar("courier", { length: 40 }),
+
 });
 
 export type CredentialAccount = typeof credentialAccounts.$inferSelect;
@@ -58,7 +59,9 @@ export const shipperInvites = pgTable("shipper_invites", {
   status: inviteStatusEnum("status").default("active").notNull(),
   expiresAt: timestamp("expiresAt").notNull(),
   claimedAt: timestamp("claimedAt"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),  contractNumber: varchar("contractNumber", { length: 40 }).notNull().default(""),
+  claimedByUserId: integer("claimedByUserId"),
+
 });
 
 export type ShipperInvite = typeof shipperInvites.$inferSelect;

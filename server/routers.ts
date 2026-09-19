@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByBusinessNumber, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByBusinessNumber, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, upsertShipperSettlementProfile, upsertUser } from "./db";
+import { claimShipperInvite, claimStaffInvite, createCredentialAccount, createDocumentDownloadEvent, createDocumentSealEvent, createShipperInvite, createStaffInvite, createTicketEvidence, getAccountPermissionsByUserId, getClaimedShipperInviteByUserId, getCredentialAccountByBusinessAndContact, getCredentialAccountByLoginId, getCredentialAccountByUserId, getCredentialAccountsByOrganization, getDocumentDownloadEventsByShipperUserId, getDocumentSealEventsByShipperUserId, getShipperInviteByToken, deleteShipperInviteByOwner, getShipperInvitesByAgencyUserId, updateShipperInviteByOwner, getShipperSealByUserId, getShipperContactsByUserId, getShipperSettlementProfileByUserId, getStaffInviteByToken, getUserByOpenId, truncateOperationalData, upsertAccountPermissions, upsertShipperSeal, replaceShipperContacts, updateCredentialAccountCourier, upsertShipperSettlementProfile, upsertUser } from "./db";
 import { hashPassword, verifyPassword } from "./credentials";
 import { evidenceCategories, safeEvidenceFileName, validateEvidenceUpload } from "./evidence";
 import { validateSealUpload } from "./seal";
@@ -74,8 +74,13 @@ export const appRouter = router({
         accountRole: account?.accountRole ?? (ctx.user.role === "admin" ? "owner" : null),
         organizationName: account?.organizationName ?? null,
         businessNumber: account?.businessNumber ?? null,
+        courier: account?.courier ?? null,
         contactName: account?.contactName ?? ctx.user.name ?? null,
       } as const;
+    }),
+    updateCourier: protectedProcedure.input(z.object({ courier: z.string().trim().min(1).max(40) })).mutation(async ({ ctx, input }) => {
+      await updateCredentialAccountCourier(ctx.user.id, input.courier);
+      return { success: true, courier: input.courier } as const;
     }),
     registerCredential: publicProcedure.input(z.object({
       organizationType: z.enum(["agency", "shipper"]),
@@ -87,6 +92,7 @@ export const appRouter = router({
       contacts: z.array(z.object({ name: z.string().trim().min(1).max(100), department: z.string().trim().max(100).default(""), phone: z.string().trim().max(40).default("") })).max(10).optional(),
       inviteToken: z.string().trim().min(8).max(80).optional(),
       staffInviteToken: z.string().trim().min(8).max(80).optional(),
+      courier: z.string().trim().min(1).max(40).optional(),
     })).mutation(async ({ ctx, input }) => {
       let accountRole: "owner" | "member" = "owner";
       let staffInvitePermissions: AgencyPermissionKey[] = [];
@@ -102,8 +108,17 @@ export const appRouter = router({
       } else if (input.organizationType === "shipper") {
         if (!input.inviteToken) throw new TRPCError({ code: "FORBIDDEN", message: "화주 계정은 대리점의 유효한 초대 링크에서만 설정할 수 있습니다." });
         const invite = await getShipperInviteByToken(input.inviteToken);
-        if (!invite || invite.status !== "active" || invite.expiresAt.getTime() < Date.now() || invite.businessNumber !== input.businessNumber) {
+        if (!invite || invite.status !== "active" || invite.expiresAt.getTime() < Date.now()) {
           throw new TRPCError({ code: "FORBIDDEN", message: "초대 링크 또는 사업자등록번호를 다시 확인해 주세요." });
+        }
+      }
+      let courierToSave: string | undefined;
+      if (input.organizationType === "agency") courierToSave = input.courier;
+      else if (input.inviteToken) {
+        const inviteForCourier = await getShipperInviteByToken(input.inviteToken);
+        if (inviteForCourier) {
+          const agencyAccountForCourier = await getCredentialAccountByUserId(inviteForCourier.agencyUserId);
+          courierToSave = agencyAccountForCourier?.courier ?? undefined;
         }
       }
       const existing = await getCredentialAccountByLoginId(input.loginId);
@@ -124,6 +139,7 @@ export const appRouter = router({
           contactName: input.contactName,
           loginId: input.loginId,
           passwordHash: await hashPassword(input.password),
+          courier: courierToSave ?? null,
         });
       } catch (error) {
         if (error instanceof Error && /duplicate|unique/i.test(error.message)) {
@@ -132,7 +148,7 @@ export const appRouter = router({
         throw error;
       }
 
-      if (input.organizationType === "shipper" && input.inviteToken) await claimShipperInvite(input.inviteToken);
+      if (input.organizationType === "shipper" && input.inviteToken) await claimShipperInvite(input.inviteToken, user.id);
       if (input.organizationType === "shipper" && input.contacts?.length) await replaceShipperContacts(user.id, input.contacts);
       if (input.organizationType === "agency" && accountRole === "member") {
         await upsertAccountPermissions({ userId: user.id, permissionsJson: JSON.stringify(staffInvitePermissions), updatedByUserId: staffInviteActorUserId ?? user.id });
@@ -177,35 +193,34 @@ export const appRouter = router({
     create: agencyProcedure.input(z.object({
       agencyName: z.string().trim().min(2).max(255),
       shipperName: z.string().trim().min(2).max(255),
-      businessNumber: z.string().regex(/^\d{10}$/, "초대할 화주의 사업자등록번호 10자리를 숫자로 입력해 주세요."),
+      contractNumber: z.string().trim().regex(/^[0-9A-Za-z-]{6,24}$/, "계약 택배 번호(송장번호) 6~24자를 입력해 주세요."),
     })).mutation(async ({ ctx, input }) => {
       const actorAccount = await getCredentialAccountByUserId(ctx.user.id);
       const agencyName = actorAccount?.organizationName || input.agencyName;
       const token = `lf-${randomUUID().replace(/-/g, "")}`;
       const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14);
-      await createShipperInvite({ token, agencyUserId: ctx.user.id, agencyName, shipperName: input.shipperName, businessNumber: input.businessNumber, status: "active", expiresAt });
+      await createShipperInvite({ token, agencyUserId: ctx.user.id, agencyName, shipperName: input.shipperName, businessNumber: "", contractNumber: input.contractNumber, status: "active", expiresAt });
       return { token, expiresAt } as const;
     }),
     verify: publicProcedure.input(z.object({
       token: z.string().trim().min(8).max(80),
-      businessNumber: z.string().regex(/^\d{10}$/, "사업자등록번호 10자리를 숫자로 입력해 주세요."),
     })).mutation(async ({ input }) => {
       const invite = await getShipperInviteByToken(input.token);
-      if (!invite || invite.status !== "active" || invite.expiresAt.getTime() < Date.now() || invite.businessNumber !== input.businessNumber) {
+      if (!invite || invite.status !== "active" || invite.expiresAt.getTime() < Date.now()) {
         throw new TRPCError({ code: "FORBIDDEN", message: "초대 링크 또는 사업자등록번호를 다시 확인해 주세요." });
       }
-      return { agencyName: invite.agencyName, shipperName: invite.shipperName, expiresAt: invite.expiresAt } as const;
+      return { agencyName: invite.agencyName, shipperName: invite.shipperName, contractNumber: invite.contractNumber, expiresAt: invite.expiresAt } as const;
     }),
     list: agencyProcedure.query(async ({ ctx }) => {
       const invites = await getShipperInvitesByAgencyUserId(ctx.user.id);
-      return invites.slice().sort((a, b) => b.id - a.id).map(invite => ({ id: invite.id, token: invite.token, shipperName: invite.shipperName, businessNumber: invite.businessNumber, status: invite.status, expiresAt: invite.expiresAt, claimedAt: invite.claimedAt, createdAt: invite.createdAt }));
+      return invites.slice().sort((a, b) => b.id - a.id).map(invite => ({ id: invite.id, token: invite.token, shipperName: invite.shipperName, contractNumber: invite.contractNumber, status: invite.status, expiresAt: invite.expiresAt, claimedAt: invite.claimedAt, createdAt: invite.createdAt }));
     }),
     update: agencyProcedure.input(z.object({
       id: z.number().int().positive(),
       shipperName: z.string().trim().min(2).max(255),
-      businessNumber: z.string().regex(/^\d{10}$/, "사업자등록번호 10자리를 숫자로 입력해 주세요."),
+      contractNumber: z.string().trim().regex(/^[0-9A-Za-z-]{6,24}$/, "계약 택배 번호(송장번호) 6~24자를 입력해 주세요."),
     })).mutation(async ({ ctx, input }) => {
-      const invite = await updateShipperInviteByOwner(input.id, ctx.user.id, { shipperName: input.shipperName, businessNumber: input.businessNumber });
+      const invite = await updateShipperInviteByOwner(input.id, ctx.user.id, { shipperName: input.shipperName, contractNumber: input.contractNumber });
       if (!invite) throw new TRPCError({ code: "NOT_FOUND", message: "수정할 초대 링크를 찾지 못했습니다." });
       return { success: true } as const;
     }),
@@ -220,7 +235,7 @@ export const appRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "유효하지 않거나 만료된 화주 초대 링크입니다." });
       }
       const agencyAccount = await getCredentialAccountByUserId(invite.agencyUserId);
-      return { agencyName: agencyAccount?.organizationName || invite.agencyName, shipperName: invite.shipperName, businessNumber: invite.businessNumber, expiresAt: invite.expiresAt } as const;
+      return { agencyName: agencyAccount?.organizationName || invite.agencyName, shipperName: invite.shipperName, contractNumber: invite.contractNumber, courier: agencyAccount?.courier ?? null, expiresAt: invite.expiresAt } as const;
     }),
     staffSetup: publicProcedure.input(z.object({ token: z.string().trim().min(8).max(80) })).query(async ({ input }) => {
       const invite = await getStaffInviteByToken(input.token);
@@ -313,7 +328,7 @@ export const appRouter = router({
         };
       });
       const account = await getCredentialAccountByUserId(ctx.user.id);
-      const claimedInvite = account ? await getClaimedShipperInviteByBusinessNumber(account.businessNumber) : null;
+      const claimedInvite = await getClaimedShipperInviteByUserId(ctx.user.id);
       const agencyAccount = claimedInvite ? await getCredentialAccountByUserId(claimedInvite.agencyUserId) : null;
       return {
         pendingSettlement: !settlement || settlement.status !== "verified",
@@ -332,9 +347,7 @@ export const appRouter = router({
     agencyShipperHistory: agencyProcedure.query(async ({ ctx }) => {
       const invites = await getShipperInvitesByAgencyUserId(ctx.user.id);
       const rows = await Promise.all(invites.map(async invite => {
-        const accounts = await getCredentialAccountsByBusinessNumber(invite.businessNumber);
-        const shipperAccounts = accounts.filter(account => account.organizationType === "shipper");
-        const owner = shipperAccounts.find(account => account.accountRole === "owner") ?? shipperAccounts[0];
+        const owner = invite.claimedByUserId ? await getCredentialAccountByUserId(invite.claimedByUserId) : undefined;
         const settlement = owner ? await getShipperSettlementProfileByUserId(owner.userId) : undefined;
         const sealEvents = owner ? await getDocumentSealEventsByShipperUserId(owner.userId) : [];
         const downloadEvents = owner ? await getDocumentDownloadEventsByShipperUserId(owner.userId) : [];
@@ -343,11 +356,12 @@ export const appRouter = router({
           token: invite.token,
           businessNumber: invite.businessNumber,
           name: invite.shipperName,
+          contractNumber: invite.contractNumber,
           inviteStatus: invite.status,
           invitedAt: invite.createdAt,
           expiresAt: invite.expiresAt,
           claimedAt: invite.claimedAt,
-          contactCount: shipperAccounts.length,
+          contactCount: contactRows.length,
           contacts: contactRows.map(contact => ({ name: contact.name, department: contact.department, phone: contact.phone })),
           ownerUserId: owner?.userId ?? null,
           settlement: settlement ? { bank: settlement.bank, accountLast4: settlement.accountLast4, status: settlement.status, updatedAt: settlement.updatedAt } : null,
@@ -356,6 +370,18 @@ export const appRouter = router({
         };
       }));
       return rows;
+    }),
+  }),
+  tracking: router({
+    lookup: protectedProcedure.input(z.object({ trackingNumber: z.string().trim().regex(/^[0-9A-Za-z-]{6,24}$/, "송장번호 6~24자로 입력해 주세요.") })).query(async ({ ctx, input }) => {
+      const account = await getCredentialAccountByUserId(ctx.user.id);
+      const courier = account?.courier ?? null;
+      return {
+        trackingNumber: input.trackingNumber,
+        courier,
+        linked: false,
+        message: courier ? `${courier} ${input.trackingNumber} 조회를 준비했습니다. 택배사 조회 API 연동 후 실시간 추적이 활성화됩니다.` : "본사 택배사가 지정되지 않았습니다. 대리점 설정에서 먼저 선택해 주세요.",
+      } as const;
     }),
   }),
   evidence: router({

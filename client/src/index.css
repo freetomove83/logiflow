@@ -193,4 +193,7 @@ button:active { transform: scale(.98); }
 .company-members .member-empty { margin: 2px 0 0; color: #8b9aab; font-size: 10px; }
 .logo-mark { display: inline-flex; align-items: center; justify-content: center; height: 36px; width: 36px; flex: 0 0 auto; border-radius: 9px; background: #0e9f95; }
 .logo-mark svg { height: 19px; width: 19px; color: #fff; }
+.track-shell { display: flex; align-items: center; gap: 4px; border: 1px solid #e2e6e1; border-radius: 6px; background: #fbfdfb; padding: 1px 6px 1px 8px; }
+.track-shell svg { color: #0e9f95; }
+.track-shell .track-button { border-radius: 4px; background: #0e9f95; color: #fff; font-size: 10px; font-weight: 800; padding: 4px 8px; cursor: pointer; }
 
